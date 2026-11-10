@@ -1,0 +1,21 @@
+<service>
+  <id>BCSController</id>
+  <name>BCS Controller</name>
+  <description>Ultricore routing panel server</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>server/index.ts</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <env name="BCS_MODE" value="simulator" />
+  <env name="BCS_DATA_DIR" value="%ProgramData%\BCSController\simulator" />
+  <env name="WEB_HOST" value="127.0.0.1" />
+  <env name="WEB_PORT" value="8088" />
+  <logpath>%ProgramData%\BCSController\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+  <serviceaccount>
+    <username>NT AUTHORITY\LocalService</username>
+  </serviceaccount>
+  <onfailure action="restart" delay="10 sec" />
+</service>
