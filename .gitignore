@@ -3,7 +3,19 @@ dist/
 data/
 runtime/
 .env
+.env.*
 *.sqlite*
 *.pem
+*.key
+*.pfx
+*.p12
+/logs/
+/backups/
+/Docs/
+/AGENTS.md
+/test/
+/server/simulator.ts
+/Ross BCS Docs/
+/dashboard custom panel/
 playwright-report/
 test-results/

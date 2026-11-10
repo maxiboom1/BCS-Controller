@@ -23,15 +23,12 @@ if not defined BCS_PORT set "BCS_PORT=12345"
 if not defined BCS_DATA_DIR set "BCS_DATA_DIR=%~dp0data\live"
 set "BCS_ENABLE_SELECTED_LEVELS=no"
 set "WEB_HOST=127.0.0.1"
-if not defined WEB_PORT set "WEB_PORT=8443"
-set "WEB_ORIGIN=http://localhost:%WEB_PORT%"
+set "WEB_ORIGIN="
 set "WEB_ALLOW_LOCAL_HTTP=yes"
 set "WEB_TLS_CERT="
 set "WEB_TLS_KEY="
 
-echo Ultrix Controller - Live BCS at %BCS_HOST%:%BCS_PORT%
-echo Admin UI  %WEB_ORIGIN%/admin
-echo Use Admin ^> Router ^> Connect to synchronize. Press Ctrl+C to stop.
+echo Ultrix Controller - Press Ctrl+C to stop.
 echo.
 "%NODE_EXE%" server\index.ts
 set "EXIT_CODE=%ERRORLEVEL%"

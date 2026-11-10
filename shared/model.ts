@@ -26,12 +26,23 @@ export type Route = { destinationId: string; revision: string; levels: Crosspoin
 export type RouterStatus = {
   state: 'offline' | 'connecting' | 'syncing' | 'retrying' | 'live'
   enabled: boolean
+  adminDisconnected: boolean
   endpoint: string
   mode: 'simulator' | 'live-readonly' | 'live'
   writes: boolean
   selectedLevels: boolean
   connectedAt: number | null
   lastError: string | null
+}
+export const MIN_PASSWORD_LENGTH = 6
+export type ControllerSettings = {
+  bcsHost: string; bcsPort: number; pollIntervalMs: number; webPort: number; idleMinutes: number
+}
+export type SettingsView = {
+  settings: ControllerSettings; activeUrl: string; activePort: number; version: string
+}
+export type OnlineSession = {
+  id: string; username: string; ip: string; browser: string; lastActivityAt: number; current: boolean
 }
 export type Snapshot = { user: User; panels: PanelView[]; router: RouterStatus; routes: Route[]; levels: Binding[] }
 export type TakeInput = { actionId: string; sourceId: string; destinationId: string; revision: string; panelVersion: number }

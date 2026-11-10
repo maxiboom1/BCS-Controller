@@ -5,6 +5,7 @@ import { Writable } from 'node:stream'
 import { configuration } from './config.ts'
 import { Store } from './db.ts'
 import { hashPassword } from './auth.ts'
+import { MIN_PASSWORD_LENGTH } from '../shared/model.ts'
 
 const [command, value] = process.argv.slice(2).filter(arg => arg !== '--')
 const config = configuration()
@@ -17,10 +18,10 @@ try {
     if (!password) {
       const silent = new Writable({ write(_chunk, _encoding, done) { done() } })
       const reader = createInterface({ input: process.stdin, output: silent, terminal: Boolean(process.stdin.isTTY) })
-      process.stdout.write('Admin password (12–128 characters): ')
+      process.stdout.write(`Admin password (at least ${MIN_PASSWORD_LENGTH} characters): `)
       try { password = await reader.question('') } finally { reader.close(); process.stdout.write('\n') }
     }
-    if (password.length < 12 || password.length > 128) throw new Error('Password must contain 12–128 characters.')
+    if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`Password must contain at least ${MIN_PASSWORD_LENGTH} characters.`)
     db.saveUser({ username: value, password: await hashPassword(password), enabled: true, panelIds: [] }, undefined, 'admin')
     console.log('Administrator created for ' + config.mode + '.')
   } else if (command === 'backup' && value) {

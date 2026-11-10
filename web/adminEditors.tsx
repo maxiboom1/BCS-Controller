@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MIN_PASSWORD_LENGTH } from '../shared/model.ts'
 import type { FormEvent } from 'react'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import type { Binding, BoundItem, Kind, PanelView, User } from '../shared/model.ts'
@@ -31,8 +32,8 @@ export function UserEditor({ user, panels, done, cancel }: {
     <div className="form-grid">
       <label>Username<input value={username} onChange={e => setUsername(e.target.value)} required minLength={2} maxLength={40} autoComplete="off" /></label>
       <label>{user ? 'New password' : 'Password'}<input type="password" value={password} onChange={e => setPassword(e.target.value)}
-        required={!user} minLength={12} maxLength={128} autoComplete="new-password"
-        placeholder={user ? 'Leave blank to keep current password' : 'At least 12 characters'} /></label>
+        required={!user} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password"
+        placeholder={user ? 'Leave blank to keep current password' : `At least ${MIN_PASSWORD_LENGTH} characters`} /></label>
     </div>
     <label className="check"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
       disabled={user?.role === 'admin'} /> Account enabled</label>

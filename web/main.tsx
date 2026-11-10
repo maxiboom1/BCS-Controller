@@ -58,6 +58,31 @@ function App() {
   }, [])
   useEffect(() => {
     if (!state?.user.id) return
+    let lastReport = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const controller = new AbortController()
+    function report() {
+      timer = undefined
+      lastReport = Date.now()
+      void api('/session/activity', 'POST', undefined, controller.signal).catch(() => {})
+    }
+    function interact(event: Event) {
+      if (!event.isTrusted || document.hidden || timer !== undefined) return
+      const delay = 5000 - (Date.now() - lastReport)
+      if (delay <= 0) report()
+      else timer = setTimeout(report, delay)
+    }
+    window.addEventListener('pointerdown', interact)
+    window.addEventListener('keydown', interact)
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+      window.removeEventListener('pointerdown', interact)
+      window.removeEventListener('keydown', interact)
+    }
+  }, [state?.user.id])
+  useEffect(() => {
+    if (!state?.user.id) return
     let active = true
     const events = new EventSource('/api/events')
     let timeout: ReturnType<typeof setTimeout>
@@ -130,6 +155,7 @@ function App() {
         <span className="username" title={state.user.username}>{state.user.username}</span>
         <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={signOut}><LogOut size={18} /></button></div>
     </header>
+    {state.router.adminDisconnected && <div className="disconnect-banner" role="alert">Server Disconnected</div>}
     {isAdmin ? <>{error && <Notice error>{error}</Notice>}<Admin status={status} revision={revision} /></>
       : <Operator panel={panel} state={state} status={status} error={error} update={applyRoute} />}
   </div>

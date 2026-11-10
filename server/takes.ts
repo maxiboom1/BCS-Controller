@@ -5,10 +5,12 @@ import type { Router } from './router.ts'
 import { validBindings, viewRoute } from './views.ts'
 import { levelMask } from './wire.ts'
 
-export function takeService(db: Store, router: Router) {
+type TakeAudit = { userId: string; panel: string; source: string; destination: string; attempted: boolean; result: TakeResult }
+
+export function takeService(db: Store, router: Router, audit?: (event: TakeAudit) => void) {
   const running = new Map<string, Promise<TakeResult>>()
   return async (userId: string, panelId: string, input: TakeInput, authorized: () => Panel): Promise<TakeResult> => {
-    authorized()
+    const requestedPanel = authorized()
     const key = userId + ':' + input.actionId
     const fingerprint = JSON.stringify([panelId, input])
     const previous = db.take(userId, input.actionId)
@@ -70,6 +72,9 @@ export function takeService(db: Store, router: Router) {
       : { outcome: 'blocked', message: error.message })
       .then(result => {
         db.finishTake(userId, input.actionId, result)
+        audit?.({ userId, panel: requestedPanel.name, attempted, result,
+          source: requestedPanel.sources.find(source => source.id === input.sourceId)?.name ?? input.sourceId,
+          destination: requestedPanel.destinations.find(destination => destination.id === input.destinationId)?.name ?? input.destinationId })
         return result
       })
       .finally(() => running.delete(key))

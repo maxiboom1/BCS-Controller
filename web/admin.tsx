@@ -1,50 +1,20 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Cable, Clapperboard, Grid2X2, ListVideo, Plus, RadioTower, Users, Video } from 'lucide-react'
+import { Clapperboard, Grid2X2, ListVideo, Monitor, Plus, Settings, Users, Video } from 'lucide-react'
 import type { PanelView, RouterStatus, User } from '../shared/model.ts'
 import { api } from './api.ts'
 import type { CatalogueRow } from './api.ts'
-import { Notice, Pagination, SearchBox, StatusBadge, useCatalogue } from './components.tsx'
+import { Notice, Pagination, SearchBox, useCatalogue } from './components.tsx'
 import { PanelEditor, UserEditor } from './adminEditors.tsx'
+import { SettingsTab } from './settings.tsx'
+import { SessionStatus } from './sessionStatus.tsx'
 
 const tabs = [
-  ['Users', Users], ['Panels', Grid2X2], ['Router', RadioTower],
+  ['Users', Users], ['Panels', Grid2X2], ['Settings', Settings], ['Status', Monitor],
   ['Sources', Video], ['Destinations', ListVideo], ['Salvos', Clapperboard],
 ] as const
 type Tab = typeof tabs[number][0]
 type AdminData = { users: User[]; panels: PanelView[]; router: RouterStatus }
-
-function RouterTab({ status }: { status: RouterStatus }) {
-  const [now, setNow] = useState(Date.now())
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(interval)
-  }, [])
-  const seconds = status.connectedAt ? Math.max(0, Math.floor((now - status.connectedAt) / 1000)) : 0
-  const uptime = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-    .map(value => String(value).padStart(2, '0')).join(':')
-  async function toggle() {
-    setBusy(true)
-    setError('')
-    try { await api('/admin/router', 'PUT', { enabled: !status.enabled }) }
-    catch (err) { setError((err as Error).message) }
-    finally { setBusy(false) }
-  }
-  return <div className="surface router-card">
-    <div className="section-heading"><div className="router-title"><div className="router-icon"><Cable size={24} /></div>
-      <div><h2>GVG Native</h2><p>{status.endpoint}</p></div></div><StatusBadge status={status} /></div>
-    <dl className="metrics">
-      <div><dt>Connection uptime</dt><dd>{uptime}</dd></div>
-      <div><dt>Mode</dt><dd>{status.mode === 'simulator' ? 'Simulator' : status.writes ? 'Live routing' : 'Live read-only'}</dd></div>
-      <div><dt>Selected-level TAKES</dt><dd>{status.selectedLevels && status.writes ? 'Enabled' : 'Gated'}</dd></div>
-    </dl>
-    {(error || status.lastError) && <Notice error>{error || status.lastError}</Notice>}
-    <button className={status.enabled ? 'danger-button' : 'primary'} type="button" aria-pressed={status.enabled}
-      onClick={toggle} disabled={busy}>{status.enabled ? 'Disconnect' : 'Connect'}</button>
-  </div>
-}
 
 function AliasEditor({ row, kind, saved, cancel }: { row: CatalogueRow; kind: string; saved: () => void; cancel: () => void }) {
   const [alias, setAlias] = useState(row.alias)
@@ -112,10 +82,12 @@ export function Admin({ status, revision }: { status: RouterStatus; revision: nu
     <main className="admin-main" id="main">
       <div className="page-heading"><span className="eyebrow">Administration</span><h1>{tab}</h1>
         <p>{{ Users: 'Manage operator accounts and panel access.', Panels: 'Build routing grids for each operator workflow.',
-          Router: 'Connect and monitor the shared BCS session.', Sources: 'Set operator-facing source names.',
+          Settings: 'Manage the BCS connection and web server.', Status: 'Monitor online client sessions.',
+          Sources: 'Set operator-facing source names.',
           Destinations: 'Set operator-facing destination names.', Salvos: 'Manage display names for BCS salvos.' }[tab]}</p></div>
       {error && <Notice error>{error}</Notice>}
-      {tab === 'Router' && <RouterTab status={status} />}
+      {tab === 'Settings' && <SettingsTab status={status} />}
+      {tab === 'Status' && <SessionStatus />}
       {(tab === 'Sources' || tab === 'Destinations' || tab === 'Salvos') &&
         <AliasTable key={tab} kind={tab.toLowerCase() as 'sources' | 'destinations' | 'salvos'} refresh={revision} />}
       {data && tab === 'Users' && <>

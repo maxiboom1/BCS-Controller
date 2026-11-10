@@ -27,9 +27,13 @@ try {
     pnpm build
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 
-    foreach ($entry in @('server', 'shared', 'dist', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml')) {
+    foreach ($entry in @('shared', 'dist', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml')) {
         Copy-Item -LiteralPath (Join-Path $root $entry) -Destination $destination -Recurse
     }
+    $serverDestination = Join-Path $destination 'server'
+    New-Item -ItemType Directory -Path $serverDestination | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $root 'server') -File | Where-Object Name -ne 'simulator.ts' |
+        Copy-Item -Destination $serverDestination
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'BCSController.xml') -Destination $destination
     if ($WinSWPath) {
         Copy-Item -LiteralPath (Resolve-Path -LiteralPath $WinSWPath).Path -Destination (Join-Path $destination 'BCSController.exe')

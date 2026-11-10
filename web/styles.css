@@ -55,9 +55,9 @@ p { color: var(--muted); line-height: 1.55; }
 }
 .brand, .header-end, .view-nav { display: flex; align-items: center; gap: 0.65rem; white-space: nowrap; }
 .brand-mark { display: block; flex: none; }
-.router-icon {
-  display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; color: var(--accent);
-  background: #1d2e46; border: 1px solid #354f71;
+.disconnect-banner {
+  flex: none; padding: 0.72rem 1rem; text-align: center; background: #7a222a; color: #fff;
+  border-bottom: 1px solid #c95761; font-size: 1.1rem; font-weight: 750;
 }
 .header-end { margin-left: auto; }
 .view-nav a { min-height: 44px; display: grid; align-items: center; padding: 0 0.75rem; color: var(--muted); border-radius: 8px; }
@@ -117,7 +117,17 @@ legend { font-weight: 650; padding: 0 0.42rem; }
 .router-card { max-width: 790px; }
 .router-card > button { justify-self: start; min-width: 120px; }
 .router-title { display: flex; gap: 0.75rem; align-items: center; }
-.router-icon { width: 51px; height: 51px; }
+.settings-metrics dd { overflow-wrap: anywhere; }
+.settings-form { display: grid; gap: 0.9rem; }
+.setting-field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.35rem; min-width: 0; }
+.setting-field input { grid-column: 1 / -1; }
+.setting-help { position: relative; }
+.setting-help summary { display: grid; place-items: center; width: 32px; min-height: 28px; cursor: pointer; color: var(--muted); }
+.setting-help summary::-webkit-details-marker { display: none; }
+.setting-help p {
+  position: absolute; z-index: 3; top: 100%; right: 0; width: min(15rem, 70vw); padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface-high); font-size: 0.82rem;
+}
 .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin: 0; }
 .metrics > div { background: #111722; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
 .metrics dt { color: var(--muted); font-size: 0.78rem; }

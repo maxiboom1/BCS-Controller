@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as wait } from 'node:timers/promises'
 import { emptyCatalogue } from '../shared/model.ts'
-import type { Catalogue, Crosspoints, RouterStatus } from '../shared/model.ts'
+import type { Catalogue, ControllerSettings, Crosspoints, RouterStatus } from '../shared/model.ts'
 import { Gvg } from './gvg.ts'
+import { DEFAULT_SETTINGS, endpointAddress } from './settings.ts'
 
 export type Endpoint = { host: string; port: number; mode: RouterStatus['mode']; selectedLevels: boolean }
 type StatusRecord = { revision: string; levels: Crosspoints }
 type Change = { destinationId?: string; catalogue?: boolean }
+type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs'>
 export type Link = { gvg: Gvg; read: (id: string) => Promise<StatusRecord>; ensure: () => void }
 
 export class Router {
@@ -19,25 +21,46 @@ export class Router {
   private connection: Gvg | null = null
   private tail: Promise<unknown> = Promise.resolve()
   private runner: Promise<void> = Promise.resolve()
+  private reconfiguring = false
+  private pollIntervalMs: number
 
-  constructor(endpoint: Endpoint, storedCatalogue?: Catalogue) {
+  constructor(endpoint: Endpoint, storedCatalogue?: Catalogue, pollIntervalMs = DEFAULT_SETTINGS.pollIntervalMs) {
     this.endpoint = endpoint
+    this.pollIntervalMs = pollIntervalMs
     if (storedCatalogue) this.catalogue = storedCatalogue
     this.status = {
-      state: 'offline', enabled: false, connectedAt: null, lastError: null,
-      mode: endpoint.mode, endpoint: endpoint.mode === 'simulator' ? 'Local GVG simulator' : endpoint.host + ':' + endpoint.port,
+      state: 'offline', enabled: false, adminDisconnected: false, connectedAt: null, lastError: null,
+      mode: endpoint.mode, endpoint: endpoint.mode === 'simulator' ? 'Local GVG simulator' : endpointAddress(endpoint.host, endpoint.port),
       writes: endpoint.mode !== 'live-readonly', selectedLevels: endpoint.selectedLevels || endpoint.mode === 'simulator',
     }
   }
 
-  enable(enabled: boolean) {
+  async configure(settings: RouterSettings, storedCatalogue?: Catalogue) {
+    this.pollIntervalMs = settings.pollIntervalMs
+    if (this.endpoint.mode === 'simulator' || (settings.bcsHost === this.endpoint.host && settings.bcsPort === this.endpoint.port)) return
+
+    this.reconfiguring = true
+    try {
+      await this.serial(async () => {
+        const enabled = this.status.enabled
+        this.enable(false, false)
+        this.endpoint = { ...this.endpoint, host: settings.bcsHost, port: settings.bcsPort }
+        this.catalogue = storedCatalogue ?? emptyCatalogue()
+        this.routes.clear()
+        this.set({ endpoint: endpointAddress(settings.bcsHost, settings.bcsPort), lastError: null })
+        this.enable(enabled)
+      })
+    } finally { this.reconfiguring = false }
+  }
+
+  enable(enabled: boolean, manual = true) {
     if (enabled === this.status.enabled) return
     if (!enabled) {
       this.controller?.abort()
       this.controller = null
       this.connection?.close()
       this.connection = null
-      this.set({ enabled: false, state: 'offline', connectedAt: null, lastError: null })
+      this.set({ enabled: false, state: 'offline', adminDisconnected: manual || this.status.adminDisconnected, connectedAt: null, lastError: null })
       return
     }
     const controller = new AbortController()
@@ -47,7 +70,7 @@ export class Router {
   }
 
   async stop() {
-    this.enable(false)
+    this.enable(false, false)
     await this.runner
     await this.tail
   }
@@ -102,7 +125,7 @@ export class Router {
         this.catalogue = catalogue
         this.routes = new Map([...routes].map(([id, points]) =>
           [id, { levels: this.normalize(points), revision: randomUUID() }]))
-        this.set({ state: 'live', lastError: null }, true)
+        this.set({ state: 'live', adminDisconnected: false, lastError: null }, true)
         delay = 1000
         let healthDue = Date.now() + 10_000
         let refreshDue = Date.now() + 300_000
@@ -124,7 +147,7 @@ export class Router {
             signal.throwIfAborted()
             for (const [id, points] of changes) this.update(id, points)
           })
-          await wait(Math.max(0, 1000 - (Date.now() - started)), undefined, { signal })
+          await wait(Math.max(0, this.pollIntervalMs - (Date.now() - started)), undefined, { signal })
         }
         if (!signal.aborted) throw new Error(this.status.lastError ?? 'GVG connection closed')
       } catch (error) {
@@ -141,6 +164,7 @@ export class Router {
   }
 
   async withLink<T>(action: (link: Link) => Promise<T>) {
+    if (this.reconfiguring) throw new Error('BCS endpoint is changing')
     const gvg = this.connection
     const ensure = () => {
       if (!gvg || this.connection !== gvg || gvg.closed || this.status.state !== 'live') throw new Error('Router is offline or synchronizing')

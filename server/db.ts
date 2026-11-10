@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
-import type { Binding, Catalogue, Kind, Panel, PanelInput, TakeResult, User } from '../shared/model.ts'
+import type { Binding, Catalogue, ControllerSettings, Kind, Panel, PanelInput, TakeResult, User } from '../shared/model.ts'
 
 type UserRow = { id: string; username: string; password: string; role: User['role']; enabled: number }
 type ActionRow = { fingerprint: string; result: string | null; attempted: number }
@@ -23,6 +23,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS sessions (
         token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS session_activity (
+        token TEXT PRIMARY KEY REFERENCES sessions(token) ON DELETE CASCADE, last_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS panels (
         id TEXT PRIMARY KEY, config TEXT NOT NULL, version INTEGER NOT NULL
       );
@@ -40,6 +43,8 @@ export class Store {
         PRIMARY KEY (user_id, id)
       );
     `)
+    this.sql.prepare('INSERT OR IGNORE INTO session_activity SELECT token, ? FROM sessions WHERE expires > ?')
+      .run(Date.now(), Date.now())
   }
 
   recoverTakes() {
@@ -89,17 +94,38 @@ export class Store {
   }
 
   session(token: string, userId: string, expires: number) {
-    this.sql.prepare('DELETE FROM sessions WHERE expires <= ?').run(Date.now())
-    this.sql.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(token, userId, expires)
+    this.sql.transaction(() => {
+      const now = Date.now()
+      this.sql.prepare('DELETE FROM sessions WHERE expires <= ?').run(now)
+      this.sql.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(token, userId, expires)
+      this.sql.prepare('INSERT INTO session_activity VALUES (?, ?)').run(token, now)
+    })()
   }
   logout(token: string) { this.sql.prepare('DELETE FROM sessions WHERE token = ?').run(token) }
 
-  sessionUser(token: string) {
+  sessionUser(token: string, idleMs = 0) {
+    const now = Date.now()
     const row = this.sql.prepare(`
-      SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
-      WHERE token = ? AND expires > ? AND enabled = 1
-    `).get(token, Date.now()) as UserRow | undefined
+      SELECT users.*, session_activity.last_at FROM sessions JOIN users ON users.id = sessions.user_id
+      LEFT JOIN session_activity ON sessions.token = session_activity.token
+      WHERE sessions.token = ? AND expires > ? AND enabled = 1
+    `).get(token, now) as (UserRow & { last_at: number | null }) | undefined
+    if (row && idleMs && row.last_at !== null && now - row.last_at >= idleMs) {
+      this.logout(token)
+      return undefined
+    }
     return row ? this.user(row) : undefined
+  }
+
+  activity(token: string) {
+    return (this.sql.prepare('SELECT last_at FROM session_activity WHERE token = ?').get(token) as { last_at: number } | undefined)?.last_at
+  }
+
+  touchSession(token: string) {
+    const now = Date.now()
+    this.sql.prepare(`INSERT INTO session_activity VALUES (?, ?)
+      ON CONFLICT(token) DO UPDATE SET last_at = excluded.last_at WHERE session_activity.last_at <= ?`)
+      .run(token, now, now - 2000)
   }
 
   private panel(row: { id: string; config: string; version: number }): Panel {
@@ -145,6 +171,16 @@ export class Store {
   saveCatalogue(key: string, catalogue: Catalogue) {
     this.sql.prepare('INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(key, JSON.stringify(catalogue))
+  }
+
+  controllerSettings() {
+    const row = this.sql.prepare("SELECT value FROM settings WHERE key = 'controller-settings'").get() as { value: string } | undefined
+    return row ? JSON.parse(row.value) as ControllerSettings : undefined
+  }
+
+  saveControllerSettings(settings: ControllerSettings) {
+    this.sql.prepare("INSERT INTO settings VALUES ('controller-settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(JSON.stringify(settings))
   }
 
   take(user: string, id: string) {
