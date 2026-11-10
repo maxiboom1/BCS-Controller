@@ -1,5 +1,13 @@
 import type { Binding, Route } from '../shared/model.ts'
 
+const isVideoLevel = (name: string) => /^(?:V|VID|VIDEO)$/i.test(name.trim())
+
+export function videoSourceId(levels: Binding[], route: Route) {
+  const video = levels.find(level => isVideoLevel(level.name))
+  const point = video && route.levels[video.id]
+  return point && !point.chopping ? point.sourceId ?? undefined : undefined
+}
+
 export function isMixedRoute(route: Route) {
   const points = Object.values(route.levels)
   return new Set(points.map(point => point.sourceId)).size > 1 || points.some(point => point.chopping)
@@ -19,7 +27,7 @@ export function groupRouteLevels(levels: Binding[], route: Route) {
       previous.lastAudio = audio
       previous.label = `A${previous.firstAudio}–${audio}`
     } else {
-      const label = audio ? `A${audio}` : /^(?:V|VID|VIDEO)$/i.test(name) ? 'V' : name || level.id
+      const label = audio ? `A${audio}` : isVideoLevel(name) ? 'V' : name || level.id
       groups.push({ id: level.id, label, sourceId, chopping, firstAudio: audio, lastAudio: audio })
     }
   }

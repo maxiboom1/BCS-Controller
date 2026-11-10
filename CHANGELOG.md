@@ -5,6 +5,7 @@ Each production change set gets a version bump and a dated release entry.
 ## 1.0.01 · 2026-11-10
 
 - Added startup BCS connection, editable GVG endpoint and polling settings, and a disconnect banner for signed-in clients.
+- The Operator highlights the selected destination's video source in red, including when audio is routed from another source.
 - Added a saved web port with restart notice and optional idle logout. Added session presence, browser information, idle time, and targeted sign-out in Admin Status.
 - Reduced new and reset password requirements to a six-character minimum.
 - Replaced request chatter with timestamped startup, BCS, administration, and TAKE messages.

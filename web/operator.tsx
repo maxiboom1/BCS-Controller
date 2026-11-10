@@ -4,6 +4,7 @@ import type { BoundItem, PanelView, Route, RouterStatus, Snapshot, TakeResult } 
 import { api } from './api.ts'
 import { StatusBadge } from './components.tsx'
 import { DestinationGrid } from './destinationGrid.tsx'
+import { videoSourceId } from './routeLevels.ts'
 
 type UpdateRoute = (route: Route, previous?: string) => void
 type Staged = { source: BoundItem; revision: string }
@@ -73,7 +74,7 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
   const sourceId = resolved && sources.size === 1 && !chopping ? [...sources][0] : undefined
   const inPanel = panel.sources.find(source => source.id === sourceId && source.valid)
   const hasFresh = !!readKey && fresh === readKey
-  const confirmed = hasFresh ? inPanel?.id : undefined
+  const confirmedVideo = hasFresh && route ? videoSourceId(state.levels ?? [], route) : undefined
   const stageChanged = !!staged && staged.revision !== route?.revision
   const protectedLevels = chopping || points.some(point => point?.protected)
   const canRoute = Boolean(hasFresh && route && resolved && !protectedLevels &&
@@ -136,11 +137,11 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
     <section className="surface grid-section" aria-labelledby="sources-heading">
       <h2 id="sources-heading" className="grid-heading">Sources</h2>
       <div className="route-grid" style={style}>{panel.sources.map(source => {
-        const routed = source.id === confirmed
+        const routed = source.valid && source.id === confirmedVideo
         const pending = !stageChanged && staged?.source.id === source.id
         return <button type="button" key={source.id} className={'route-key' + (routed ? ' routed' : '') + (pending ? ' staged' : '')}
           title={source.label} aria-pressed={panel.useTake ? pending : undefined}
-          aria-description={!source.valid ? 'Catalogue binding requires review' : routed ? 'Routed source' : undefined}
+          aria-description={!source.valid ? 'Catalogue binding requires review' : routed ? 'Routed video source' : undefined}
           disabled={!source.valid || !canRoute} onClick={() => selectSource(source)}><span>{source.label}</span></button>
       })}</div>
     </section>
