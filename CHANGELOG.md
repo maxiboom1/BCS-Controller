@@ -2,6 +2,11 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.02 · 2026-11-10
+
+- Enabled HTTP access on the workstation's private LAN address. The console prints the LAN URL at startup.
+- Kept TAKE action IDs compatible with browsers using plain LAN HTTP.
+
 ## 1.0.01 · 2026-11-10
 
 - Added startup BCS connection, editable GVG endpoint and polling settings, and a disconnect banner for signed-in clients.

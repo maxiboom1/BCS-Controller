@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { createApp } from './app.ts'
-import { configuration } from './config.ts'
+import { allowedHttpHosts, configuration } from './config.ts'
 import { Store } from './db.ts'
 import { Router } from './router.ts'
 import { consoleLogger, release } from './log.ts'
@@ -16,13 +16,13 @@ const settings = db.controllerSettings() ?? {
 const port = process.env.WEB_PORT ? config.port : settings.webPort
 const certPath = process.env.WEB_TLS_CERT
 const keyPath = process.env.WEB_TLS_KEY
-const localHttp = process.env.WEB_ALLOW_LOCAL_HTTP === 'yes' && config.host === '127.0.0.1'
-const origin = process.env.WEB_ORIGIN || (localHttp && !certPath ? new URL(`http://localhost:${port}`).origin : undefined)
-const allowLocalHttp = localHttp && ['127.0.0.1', 'localhost'].some(host => origin === new URL(`http://${host}:${port}`).origin)
+const httpOrigins = allowedHttpHosts(config.host).map(host => new URL(`http://${host}:${port}`).origin)
+const origin = process.env.WEB_ORIGIN || (certPath ? undefined : httpOrigins[0])
 if (Boolean(certPath) !== Boolean(keyPath)) throw new Error('Set both WEB_TLS_CERT and WEB_TLS_KEY')
 if (origin && new URL(origin).origin !== origin) throw new Error('WEB_ORIGIN must be an exact origin')
-if ((!certPath || !origin?.startsWith('https://')) && (config.mode !== 'simulator' || config.host !== '127.0.0.1') && !allowLocalHttp) {
-  throw new Error('Live mode and LAN binding require TLS and an HTTPS WEB_ORIGIN.')
+if ((!certPath || !origin?.startsWith('https://')) && (config.mode !== 'simulator' || config.host !== '127.0.0.1') &&
+  !httpOrigins.includes(origin ?? '')) {
+  throw new Error('Configure HTTPS or explicitly allow HTTP on the bound loopback or private LAN address.')
 }
 if (certPath && !origin?.startsWith('https://')) throw new Error('TLS requires an HTTPS WEB_ORIGIN.')
 const tls = certPath && keyPath ? { cert: readFileSync(certPath), key: readFileSync(keyPath) } : undefined

@@ -12,9 +12,9 @@ Double-click `Start Ultrix Controller.cmd` or run it from PowerShell.
 & '.\Start Ultrix Controller.cmd'
 ```
 
-The console prints the release version, database status, and browser URL, then connects to BCS automatically. Open [Admin](http://localhost:8443/admin) on the workstation unless a different web port is configured. Press **Ctrl+C** to stop the console. Start one copy at a time.
+The console prints the release version, database status, and browser URL, then connects to BCS automatically. Open [Admin](http://192.168.10.25:8443/admin) from the workstation or another LAN PC. Use the URL printed in the console if the address or port has changed. Press **Ctrl+C** to stop the console. Start one copy at a time.
 
-The initial defaults are BCS `10.10.10.156:12345`, a `1000 ms` delta request interval, and web port `8443`. The local HTTP launcher binds to loopback. For LAN access, configure TLS and the exact HTTPS origin before starting the server.
+The initial defaults are BCS `10.10.10.156:12345`, a `1000 ms` delta request interval, and web port `8443`. The launcher enables plain HTTP on the specific private LAN address `192.168.10.25`. Set `WEB_HOST` before starting the launcher to use a different private IPv4 address. If Windows Firewall is enabled, allow inbound TCP on the web port from the intended LAN clients.
 
 ## Accounts and settings
 

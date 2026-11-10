@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { BoundItem, PanelView, Route, RouterStatus, Snapshot, TakeResult } from '../shared/model.ts'
-import { api } from './api.ts'
+import { api, newActionId } from './api.ts'
 import { StatusBadge } from './components.tsx'
 import { DestinationGrid } from './destinationGrid.tsx'
 import { videoSourceId } from './routeLevels.ts'
@@ -108,7 +108,7 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
     setFeedback(undefined)
     try {
       const result = await api<TakeResult>('/panels/' + panel.id + '/takes', 'POST', {
-        actionId: crypto.randomUUID(), sourceId: source.id, destinationId, revision, panelVersion: panel.version,
+        actionId: newActionId(), sourceId: source.id, destinationId, revision, panelVersion: panel.version,
       })
       if (result.route) update(result.route, revision)
       if (result.outcome === 'uncertain') setFresh('')

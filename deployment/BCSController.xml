@@ -7,8 +7,8 @@
   <workingdirectory>%BASE%</workingdirectory>
   <env name="BCS_MODE" value="live" />
   <env name="BCS_DATA_DIR" value="%ProgramData%\BCSController\live" />
-  <env name="WEB_HOST" value="127.0.0.1" />
-  <env name="WEB_ALLOW_LOCAL_HTTP" value="yes" />
+  <env name="WEB_HOST" value="192.168.10.25" />
+  <env name="WEB_ALLOW_LAN_HTTP" value="yes" />
   <logpath>%ProgramData%\BCSController\logs</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
