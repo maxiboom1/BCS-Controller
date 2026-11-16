@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { CircleHelp } from 'lucide-react'
+import { CircleHelp, Terminal } from 'lucide-react'
 import type { ControllerSettings, SettingsView } from '../shared/model.ts'
 import { api } from './api.ts'
 import { Notice } from './components.tsx'
+import { ProtocolConsole } from './protocolConsole.tsx'
 
 const fields = [
   { key: 'bcsHost', label: 'BCS IP address', help: 'The address of the Ultricore BCS that serves GVG Native.' },
@@ -17,6 +18,7 @@ export function SettingsTab() {
   const [view, setView] = useState<SettingsView>()
   const [draft, setDraft] = useState<ControllerSettings>()
   const [busy, setBusy] = useState(false)
+  const [monitoring, setMonitoring] = useState(false)
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>()
   useEffect(() => {
     const controller = new AbortController()
@@ -55,7 +57,10 @@ export function SettingsTab() {
         <Notice>Port {view.settings.webPort} is saved. Restart the console to apply it.</Notice>}
       {feedback && <Notice error={feedback.error}>{feedback.text}</Notice>}
     </div>
-    {draft && <div className="actions"><button type="submit" className="primary" disabled={busy}>
-      {busy ? 'Saving…' : 'Save settings'}</button></div>}
+    <div className="actions">
+      <button type="button" onClick={() => setMonitoring(true)}><Terminal size={17} aria-hidden="true" /> GVG traffic</button>
+      {draft && <button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button>}
+    </div>
+    {monitoring && <ProtocolConsole onClose={() => setMonitoring(false)} />}
   </form>
 }

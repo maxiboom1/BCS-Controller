@@ -1,10 +1,11 @@
 import { createConnection } from 'node:net'
 import type { Socket } from 'node:net'
-import type { Catalogue } from '../shared/model.ts'
+import type { Catalogue, ProtocolDirection } from '../shared/model.ts'
 import { byName, Decoder, decodeStatus, encode, readCatalogue } from './wire.ts'
 import type { Frame } from './wire.ts'
 
 type Pending = { frames: Frame[]; accept: (frame: Frame) => boolean; done: (frames: Frame[]) => boolean; finish: (error?: Error) => void }
+export type PacketObserver = (direction: ProtocolDirection, packet: Buffer) => void
 
 export class Gvg {
   private pending: Pending | null = null
@@ -12,14 +13,16 @@ export class Gvg {
   private error: Error | undefined
   onClose = (_error: Error) => {}
   private socket: Socket
+  private readonly observe?: PacketObserver
 
-  private constructor(socket: Socket) {
+  private constructor(socket: Socket, observe?: PacketObserver) {
     this.socket = socket
+    this.observe = observe
     socket.setNoDelay(true)
     socket.setKeepAlive(true, 10_000)
     socket.on('data', (chunk: Buffer) => {
       try {
-        for (const frame of this.decoder.push(chunk)) {
+        for (const frame of this.decoder.push(chunk, packet => this.report('RX', packet))) {
           const pending = this.pending
           if (!pending || !pending.accept(frame)) throw new Error('Unexpected GVG reply: ' + frame.fields[0])
           pending.frames.push(frame)
@@ -38,10 +41,10 @@ export class Gvg {
     })
   }
 
-  static async open(host: string, port: number, signal: AbortSignal) {
+  static async open(host: string, port: number, signal: AbortSignal, observe?: PacketObserver) {
     signal.throwIfAborted()
     const socket = createConnection({ host, port })
-    const connection = new Gvg(socket)
+    const connection = new Gvg(socket, observe)
     const abort = () => socket.destroy(new Error('GVG connection cancelled'))
     signal.addEventListener('abort', abort, { once: true })
     socket.once('close', () => signal.removeEventListener('abort', abort))
@@ -61,6 +64,16 @@ export class Gvg {
   get closed() { return this.socket.destroyed }
   close() { this.socket.destroy() }
 
+  private report(direction: ProtocolDirection, packet: Buffer) {
+    try { this.observe?.(direction, packet) }
+    catch { /* Diagnostics must never interrupt routing. */ }
+  }
+
+  private write(packet: Buffer, callback: (error?: Error | null) => void) {
+    this.socket.write(packet, callback)
+    this.report('TX', packet)
+  }
+
   private request(fields: string[], accept: Pending['accept'], done: Pending['done'], ms: number, silence = false) {
     if (this.closed || this.pending) throw new Error('GVG socket unavailable or busy')
     const packet = encode(fields)
@@ -77,7 +90,7 @@ export class Gvg {
         else this.socket.destroy(new Error('GVG timeout or incomplete reply for ' + fields.join(',')))
       }, ms)
       this.pending = { frames, accept, done, finish }
-      this.socket.write(packet, error => { if (error) this.socket.destroy(error) })
+      this.write(packet, error => { if (error) this.socket.destroy(error) })
     })
   }
 
@@ -137,7 +150,7 @@ export class Gvg {
   async take(destination: string, source: string, bitmap?: string) {
     if (this.pending || this.closed) throw new Error('GVG socket unavailable')
     const packet = encode(bitmap === undefined ? ['TD', destination, source] : ['TD', destination, source, bitmap])
-    await new Promise<void>((resolve, reject) => this.socket.write(packet, error => error ? reject(error) : resolve()))
+    await new Promise<void>((resolve, reject) => this.write(packet, error => error ? reject(error) : resolve()))
   }
 }
 

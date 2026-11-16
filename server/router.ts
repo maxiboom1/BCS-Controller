@@ -3,6 +3,7 @@ import { setTimeout as wait } from 'node:timers/promises'
 import { emptyCatalogue } from '../shared/model.ts'
 import type { Catalogue, ControllerSettings, Crosspoints, RouterStatus } from '../shared/model.ts'
 import { Gvg } from './gvg.ts'
+import type { PacketObserver } from './gvg.ts'
 import { DEFAULT_SETTINGS, endpointAddress } from './settings.ts'
 
 export type Endpoint = { host: string; port: number; mode: RouterStatus['mode']; selectedLevels: boolean }
@@ -18,6 +19,7 @@ export class Router {
   routes = new Map<string, StatusRecord>()
   status: RouterStatus
   changed = (_change: Change) => {}
+  observePacket?: PacketObserver
   private endpoint: Endpoint
   private controller: AbortController | null = null
   private connection: Gvg | null = null
@@ -118,7 +120,7 @@ export class Router {
       }
       try {
         this.set({ state: 'connecting', connectedAt: null })
-        link = await Gvg.open(this.endpoint.host, this.endpoint.port, signal)
+        link = await Gvg.open(this.endpoint.host, this.endpoint.port, signal, (direction, packet) => this.observePacket?.(direction, packet))
         const active = link
         this.connection = active
         active.onClose = error => {

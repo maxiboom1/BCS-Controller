@@ -14,6 +14,7 @@ import { validBindings, viewAdminPanel, viewPanel, viewRoute } from './views.ts'
 import { takeService } from './takes.ts'
 import { consoleLogger, release } from './log.ts'
 import { Presence } from './presence.ts'
+import { protocolStream } from './protocolStream.ts'
 import { DEFAULT_SETTINGS, endpointAddress, settingsInput } from './settings.ts'
 
 const username = z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_.-]+$/)
@@ -50,6 +51,8 @@ export async function createApp(options: AppOptions) {
   const activePort = options.activePort ?? settings.webPort
   let savingSettings = false
   const accountFor = (session: string) => db.sessionUser(session, settings.idleMinutes * 60_000)
+  const protocol = protocolStream(session => accountFor(session)?.role === 'admin')
+  router.observePacket = protocol.capture
   const presence = new Presence()
   const cookie = options.tls ? '__Host-bcs' : 'bcs'
   const cookieAttributes = '; Path=/; HttpOnly; SameSite=Strict' + (options.tls ? '; Secure' : '')
@@ -245,6 +248,10 @@ export async function createApp(options: AppOptions) {
     return { users: db.users(), panels: db.panels().map(panel => viewAdminPanel(db, router, panel)),
       router: router.status, version: release }
   })
+  app.get('/api/admin/protocol-events', { exposeHeadRoute: false }, async (request, reply) => {
+    admin(request)
+    protocol.connect(reply, token(request))
+  })
   app.delete('/api/admin/users/:id', async request => {
     const actor = admin(request)
     const { id } = uuidParam.parse(request.params)
@@ -375,6 +382,7 @@ export async function createApp(options: AppOptions) {
 
   app.addHook('preClose', async () => {
     for (const stream of streams.keys()) stream.destroy()
+    protocol.close()
     await router.stop()
   })
   const root = resolve(options.assets ?? 'dist')

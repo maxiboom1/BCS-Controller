@@ -2,6 +2,10 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.05 · 2026-11-16
+
+- Added a live GVG traffic console in Admin Settings. It shows timestamped frames from the controller's BCS connection with All, TX, and RX filters.
+
 ## 1.0.04 · 2026-11-16
 
 - Made destination selection immediate from the browser's routing cache. TAKE still uses a fresh BCS preflight and readback. An uncertain TAKE requires destination verification or a successful resync before retrying.

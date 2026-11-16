@@ -42,6 +42,8 @@ export type ControllerSettings = {
 export type SettingsView = {
   settings: ControllerSettings; activeUrl: string; activePort: number; version: string
 }
+export type ProtocolDirection = 'TX' | 'RX'
+export type ProtocolPacket = { id: number; at: number; direction: ProtocolDirection; wire: string }
 export type OnlineSession = {
   id: string; username: string; ip: string; browser: string; lastActivityAt: number; current: boolean
 }

@@ -17,11 +17,12 @@ export class Decoder {
   private buffer = Buffer.alloc(0)
   get pending() { return this.buffer.length > 0 }
 
-  push(chunk: Buffer): Frame[] {
+  push(chunk: Buffer, observe?: (packet: Buffer) => void): Frame[] {
     this.buffer = Buffer.concat([this.buffer, chunk])
     const frames: Frame[] = []
     let end: number
     while ((end = this.buffer.indexOf(4)) >= 0) {
+      observe?.(this.buffer.subarray(0, end + 1))
       const packet = this.buffer.subarray(0, end)
       this.buffer = this.buffer.subarray(end + 1)
       const body = packet.subarray(1, -2)
