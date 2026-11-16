@@ -1,23 +1,26 @@
-import type { Binding, BoundItem, Item, Kind, Panel, PanelView, Route } from '../shared/model.ts'
+import type { AdminPanelView, Binding, BoundItem, Item, Kind, Panel, PanelView, Route } from '../shared/model.ts'
 import type { Router } from './router.ts'
 import type { Store } from './db.ts'
 
+function bind(db: Store, router: Router, kind: Kind, items: Binding[]): BoundItem[] {
+  const current = new Map(router.catalogue[kind].map(item => [item.id, item]))
+  return items.map(binding => ({
+    ...binding, valid: current.get(binding.id)?.name === binding.name, label: db.alias(kind, binding) || binding.name,
+  }))
+}
+
 export function viewPanel(db: Store, router: Router, panel: Panel): PanelView {
-  function bind(kind: Kind, items: Binding[]): BoundItem[] {
-    const current = new Map(router.catalogue[kind].map(item => [item.id, item]))
-    return items.map(binding => {
-      const match = current.get(binding.id)
-      return { ...binding, valid: match?.name === binding.name,
-        label: db.alias(kind, binding) || binding.name }
-    })
-  }
-  const { allLevelBindings, ...configuration } = panel
-  const levels = bind('levels', panel.levels ?? allLevelBindings ?? [])
+  const { allLevelBindings, salvos, ...configuration } = panel
+  const levels = bind(db, router, 'levels', panel.levels ?? allLevelBindings ?? [])
   return {
-    ...configuration, sources: bind('sources', panel.sources), destinations: bind('destinations', panel.destinations),
+    ...configuration, sources: bind(db, router, 'sources', panel.sources), destinations: bind(db, router, 'destinations', panel.destinations),
     levels, allLevels: panel.levels === null, validLevels: levels.length > 0 && levels.every(item => item.valid) &&
       (panel.levels !== null || levels.length === router.catalogue.levels.length),
   }
+}
+
+export function viewAdminPanel(db: Store, router: Router, panel: Panel): AdminPanelView {
+  return { ...viewPanel(db, router, panel), salvos: bind(db, router, 'salvos', panel.salvos ?? []) }
 }
 
 export function viewRoute(db: Store, router: Router, id: string): Route | undefined {

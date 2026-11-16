@@ -5,7 +5,7 @@ import type { Router } from './router.ts'
 import { validBindings, viewRoute } from './views.ts'
 import { levelMask } from './wire.ts'
 
-type TakeAudit = { userId: string; panel: string; source: string; destination: string; attempted: boolean; result: TakeResult }
+type TakeAudit = { username: string; panel: string; source: string; destination: string; attempted: boolean; result: TakeResult }
 
 export function takeService(db: Store, router: Router, audit?: (event: TakeAudit) => void) {
   const running = new Map<string, Promise<TakeResult>>()
@@ -19,7 +19,8 @@ export function takeService(db: Store, router: Router, audit?: (event: TakeAudit
       if (previous.result) return JSON.parse(previous.result) as TakeResult
       return running.get(key) ?? { outcome: 'uncertain', message: 'TAKE status is unknown. Check current routing.' }
     }
-    db.recordTake(userId, input.actionId, fingerprint)
+    const username = db.findUser(userId)?.username ?? 'Unknown user'
+    db.recordTake(userId, username, input.actionId, fingerprint)
     let attempted = false
     const route = () => viewRoute(db, router, input.destinationId)
     const conflict = (): TakeResult => ({ outcome: 'conflict', message: 'Routing changed. Review the new status before trying again.', route: route() })
@@ -72,7 +73,7 @@ export function takeService(db: Store, router: Router, audit?: (event: TakeAudit
       : { outcome: 'blocked', message: error.message })
       .then(result => {
         db.finishTake(userId, input.actionId, result)
-        audit?.({ userId, panel: requestedPanel.name, attempted, result,
+        audit?.({ username, panel: requestedPanel.name, attempted, result,
           source: requestedPanel.sources.find(source => source.id === input.sourceId)?.name ?? input.sourceId,
           destination: requestedPanel.destinations.find(destination => destination.id === input.destinationId)?.name ?? input.destinationId })
         return result

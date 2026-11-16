@@ -7,18 +7,20 @@ export type PanelInput = {
   name: string
   sources: Binding[]
   destinations: Binding[]
+  salvos?: Binding[]
   levels: Binding[] | null
   columns: number
   useTake: boolean
 }
 export type Panel = PanelInput & { id: string; version: number; allLevelBindings?: Binding[] }
-export type PanelView = Omit<Panel, 'sources' | 'destinations' | 'levels' | 'allLevelBindings'> & {
+export type PanelView = Omit<Panel, 'sources' | 'destinations' | 'salvos' | 'levels' | 'allLevelBindings'> & {
   sources: BoundItem[]
   destinations: BoundItem[]
   levels: BoundItem[]
   validLevels: boolean
   allLevels: boolean
 }
+export type AdminPanelView = PanelView & { salvos: BoundItem[] }
 export type User = { id: string; username: string; role: 'admin' | 'operator'; enabled: boolean; panelIds: string[] }
 export type Crosspoint = { sourceId: string | null; protected: boolean; chopping: boolean }
 export type Crosspoints = Record<string, Crosspoint>

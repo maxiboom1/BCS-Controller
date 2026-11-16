@@ -24,6 +24,12 @@ The initial defaults are BCS `10.10.10.156:12345`, a `1000 ms` delta request int
 - **Disconnect** stops the BCS connection for the current run. The app connects again at the next startup. Signed-in browsers show **Server Disconnected** until synchronization succeeds.
 - **Status** lists online sign-in sessions and allows an admin to sign out a selected session. Idle logout starts off. The absolute session limit is 12 hours.
 
+## Admin catalogues and panels
+
+- **Labels** holds source and destination aliases. An alias becomes the displayed name in the panel editor and Operator view. **Salvos** holds the salvo catalogue and its aliases.
+- In **Panels**, use the **Sources**, **Destinations**, and **Salvos** tabs to assign catalogue entries. Use Ctrl or Cmd to select individual rows and Shift to select a range. Use the arrows to transfer or reorder the selection. **Database order** follows BCS catalogue order. **A–Z** uses the displayed label. Salvo assignments are managed in Admin.
+- Deleting a panel clears its user assignments. Deleting a user signs them out of all sessions and frees their username. TAKE records keep the user ID and username. The 1.0.03 migration fills in usernames for older records from the accounts in the database.
+
 ## Backup and releases
 
 Run `pnpm backup <path-to-backup.sqlite>` to create a consistent database backup. Use the same `BCS_DATA_DIR` as the running app if it is customized. Stop the console before restoring a backup.

@@ -1,105 +1,89 @@
 import { useState } from 'react'
-import { MIN_PASSWORD_LENGTH } from '../shared/model.ts'
 import type { FormEvent } from 'react'
-import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
-import type { Binding, BoundItem, Kind, PanelView, User } from '../shared/model.ts'
-import { api } from './api.ts'
-import { Notice, Pagination, SearchBox, useCatalogue } from './components.tsx'
+import { MIN_PASSWORD_LENGTH } from '../shared/model.ts'
+import type { AdminPanelView, Binding, BoundItem, PanelView, User } from '../shared/model.ts'
+import { api, ApiError } from './api.ts'
+import { AssignmentPicker } from './assignmentPicker.tsx'
+import { Notice, Tabs, useCatalogue } from './components.tsx'
 
-export function UserEditor({ user, panels, done, cancel }: {
-  user?: User; panels: PanelView[]; done: () => void; cancel: () => void
-}) {
+type EditorActions = { done: () => void; cancel: () => void; missing: (message: string) => void }
+
+export function UserEditor({ user, panels, done, cancel, missing }: EditorActions & { user?: User; panels: PanelView[] }) {
   const [username, setUsername] = useState(user?.username ?? '')
   const [password, setPassword] = useState('')
   const [enabled, setEnabled] = useState(user?.enabled ?? true)
   const [panelIds, setPanelIds] = useState(user?.panelIds ?? [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
   async function save(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError('')
     try {
-      await api('/admin/users' + (user ? '/' + user.id : ''), user ? 'PUT' : 'POST',
-        { username, password: password || undefined, enabled, panelIds })
+      await api('/admin/users' + (user ? '/' + user.id : ''), user ? 'PUT' : 'POST', {
+        username, password: password || undefined, enabled, panelIds: panelIds.filter(id => panels.some(panel => panel.id === id)),
+      })
       done()
-    } catch (err) { setError((err as Error).message) }
-    finally { setBusy(false) }
+    } catch (err) {
+      if (user && err instanceof ApiError && err.status === 404) missing(err.message)
+      else setError((err as Error).message)
+    } finally { setBusy(false) }
   }
   return <form className="surface editor" onSubmit={save}>
-    <div className="section-heading"><div><h2>{user ? 'Edit user' : 'New user'}</h2>
-      <p>Manage credentials and panel access.</p></div><button className="icon-button" type="button" onClick={cancel} aria-label="Close editor"><X size={18} /></button></div>
-    <div className="form-grid">
-      <label>Username<input value={username} onChange={e => setUsername(e.target.value)} required minLength={2} maxLength={40} autoComplete="off" /></label>
-      <label>{user ? 'New password' : 'Password'}<input type="password" value={password} onChange={e => setPassword(e.target.value)}
-        required={!user} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password"
-        placeholder={user ? 'Leave blank to keep current password' : `At least ${MIN_PASSWORD_LENGTH} characters`} /></label>
-    </div>
-    <label className="check"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)}
-      disabled={user?.role === 'admin'} /> Account enabled</label>
-    <fieldset><legend>Assigned panels</legend>
-      {panels.length ? <div className="checklist">{panels.map(panel => <label className="check" key={panel.id}>
-        <input type="checkbox" checked={panelIds.includes(panel.id)} onChange={e => setPanelIds(ids =>
-          e.target.checked ? [...ids, panel.id] : ids.filter(id => id !== panel.id))} />{panel.name}</label>)}</div>
-        : <p className="muted">Create a panel to assign it here.</p>}
+    <h2>{user ? 'Edit user' : 'New user'}</h2>
+    <fieldset className="editor-fields" disabled={busy}>
+      <div className="form-grid">
+        <label>Username<input value={username} onChange={event => setUsername(event.target.value)}
+          required minLength={2} maxLength={40} autoComplete="off" /></label>
+        <label>{user ? 'New password' : 'Password'}<input type="password" value={password}
+          onChange={event => setPassword(event.target.value)} required={!user} minLength={MIN_PASSWORD_LENGTH}
+          autoComplete="new-password" placeholder={user ? 'Leave blank to keep current password' : undefined} /></label>
+      </div>
+      <label className="check"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)}
+        disabled={user?.role === 'admin'} /> Account enabled</label>
+      <fieldset><legend>Assigned panels</legend>
+        {panels.length ? <div className="checklist">{panels.map(panel => <label className="check" key={panel.id}>
+          <input type="checkbox" checked={panelIds.includes(panel.id)} onChange={event => {
+            const checked = event.target.checked
+            setPanelIds(ids => checked ? [...ids, panel.id] : ids.filter(id => id !== panel.id))
+          }} />{panel.name}</label>)}</div> : <p className="muted">No panels available.</p>}
+      </fieldset>
     </fieldset>
     {error && <Notice error>{error}</Notice>}
-    <div className="actions"><button type="button" onClick={cancel}>Cancel</button>
+    <div className="actions"><button type="button" disabled={busy} onClick={cancel}>Cancel</button>
       <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save user'}</button></div>
   </form>
 }
 
-function Picker({ kind, items, change, refresh }: {
-  kind: Kind; items: BoundItem[]; change: (items: BoundItem[]) => void; refresh: number
-}) {
-  const listing = useCatalogue(kind, refresh)
-  function move(index: number, direction: number) {
-    const reordered = [...items]
-    const adjacent = index + direction
-    if (adjacent < 0 || adjacent >= reordered.length) return
-    ;[reordered[index], reordered[adjacent]] = [reordered[adjacent], reordered[index]]
-    change(reordered)
-  }
-  const title = kind[0].toUpperCase() + kind.slice(1)
-  return <fieldset className="picker"><legend>{title} <span className="muted">· {items.length}</span></legend>
-    <div className="picker-columns">
-      <div className="picker-side">
-        <SearchBox label={'Find ' + kind} value={listing.q} onChange={listing.setQ} />
-        <div className="picker-list" aria-label={'Available ' + kind}>
-          {listing.result.items.map(item => <button className="picker-row" type="button" key={item.id}
-            disabled={items.some(selected => selected.id === item.id)} onClick={() => change([...items, { ...item, valid: true }])}>
-            <span>{item.label}</span><Plus size={15} aria-hidden="true" />
-          </button>)}
-          {!listing.result.items.length && <p className="muted">{listing.loading ? 'Loading…' : 'No matching catalogue entries.'}</p>}
-        </div>
-        <Pagination page={listing.page} total={listing.result.total} change={listing.setPage} />
-      </div>
-      <div className="picker-side selected">
-        <span className="muted">Selected · display order</span>
-        <div className="picker-list" aria-label={'Selected ' + kind}>
-          {items.map((item, i) => <div className="selected-row" key={item.id}>
-            <span>{item.label}{!item.valid && <small className="danger"> · Review binding</small>}</span>
-            {kind !== 'levels' && <><button className="icon-button" type="button" disabled={i === 0}
-              onClick={() => move(i, -1)} aria-label={'Move ' + item.label + ' up'}><ArrowUp size={15} /></button>
-              <button className="icon-button" type="button" disabled={i === items.length - 1}
-                onClick={() => move(i, 1)} aria-label={'Move ' + item.label + ' down'}><ArrowDown size={15} /></button></>}
-            <button className="icon-button" type="button" onClick={() => change(items.filter(row => row.id !== item.id))}
-              aria-label={'Remove ' + item.label}><X size={16} /></button>
-          </div>)}
-          {!items.length && <p className="muted">Choose entries from the catalogue.</p>}
-        </div>
-      </div>
-    </div>
+function PanelLevels({ items, change, refresh }: { items: BoundItem[]; change: (items: BoundItem[]) => void; refresh: number }) {
+  const listing = useCatalogue('levels', refresh)
+  const current = new Map(listing.items.map(row => [row.id, row]))
+  const unavailable = items.filter(row => current.get(row.id)?.name !== row.name)
+  return <fieldset><legend>Levels</legend>
     {listing.error && <Notice error>{listing.error}</Notice>}
+    <div className="checklist">
+      {listing.items.map(item => <label key={item.id} className="check">
+        <input type="checkbox" checked={items.some(row => row.id === item.id && row.name === item.name)} onChange={event => {
+          const remaining = items.filter(row => row.id !== item.id)
+          change(event.target.checked ? [...remaining, { ...item, valid: true }] : remaining)
+        }} />{item.label}</label>)}
+      {!listing.loading && unavailable.map(item => <label key={'missing-' + item.id} className="check danger">
+        <input type="checkbox" checked onChange={() => change(items.filter(row => row.id !== item.id))} />
+        {item.label} · Review binding</label>)}
+    </div>
+    {!listing.items.length && !listing.error && <p className="muted">{listing.loading ? 'Loading levels…' : 'No levels available.'}</p>}
   </fieldset>
 }
 
-export function PanelEditor({ panel, refresh, done, cancel }: {
-  panel?: PanelView; refresh: number; done: () => void; cancel: () => void
-}) {
+const panelTabs = ['Panel Settings', 'Sources', 'Destinations', 'Salvos'] as const
+
+export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorActions & { panel?: AdminPanelView; refresh: number }) {
+  const [tab, setTab] = useState<(typeof panelTabs)[number]>('Panel Settings')
   const [name, setName] = useState(panel?.name ?? '')
   const [sources, setSources] = useState(panel?.sources ?? [])
   const [destinations, setDestinations] = useState(panel?.destinations ?? [])
+  const [salvos, setSalvos] = useState(panel?.salvos ?? [])
   const [levels, setLevels] = useState(panel?.allLevels ? [] : panel?.levels ?? [])
   const [all, setAll] = useState(panel?.allLevels ?? true)
   const [useTake, setUseTake] = useState(panel?.useTake ?? true)
@@ -107,33 +91,52 @@ export function PanelEditor({ panel, refresh, done, cancel }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const bindings = (rows: BoundItem[]): Binding[] => rows.map(({ id, name }) => ({ id, name }))
+
   async function save(event: FormEvent) {
     event.preventDefault()
+    if (!name.trim() || !Number.isInteger(columns) || columns < 2 || columns > 12) {
+      setTab('Panel Settings')
+      setError('Enter a panel name and 2–12 grid columns.')
+      return
+    }
     setError('')
     setBusy(true)
     try {
-      await api('/admin/panels' + (panel ? '/' + panel.id : ''), panel ? 'PUT' : 'POST',
-        { name, sources: bindings(sources), destinations: bindings(destinations), levels: all ? null : bindings(levels), useTake, columns })
+      await api('/admin/panels' + (panel ? '/' + panel.id : ''), panel ? 'PUT' : 'POST', {
+        name, sources: bindings(sources), destinations: bindings(destinations), salvos: bindings(salvos),
+        levels: all ? null : bindings(levels), useTake, columns,
+      })
       done()
-    } catch (err) { setError((err as Error).message) }
-    finally { setBusy(false) }
+    } catch (err) {
+      if (panel && err instanceof ApiError && err.status === 404) missing(err.message)
+      else setError((err as Error).message)
+    } finally { setBusy(false) }
   }
+
   return <form className="surface editor" onSubmit={save}>
-    <div className="section-heading"><div><h2>{panel ? 'Edit panel' : 'New panel'}</h2><p>Configure an operator’s routing grid and level scope.</p></div>
-      <button className="icon-button" type="button" onClick={cancel} aria-label="Close editor"><X size={18} /></button></div>
-    <div className="form-grid">
-      <label>Panel name<input value={name} onChange={e => setName(e.target.value)} maxLength={80} required /></label>
-      <label>Grid columns<input type="number" min={2} max={12} value={columns} onChange={e => setColumns(e.target.valueAsNumber)} required /></label>
-    </div>
-    <div className="checks"><label className="check"><input type="checkbox" checked={useTake}
-      onChange={e => setUseTake(e.target.checked)} /> Use TAKE</label>
-      <label className="check"><input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} /> All levels</label></div>
-    <Picker kind="sources" items={sources} change={setSources} refresh={refresh} />
-    <Picker kind="destinations" items={destinations} change={setDestinations} refresh={refresh} />
-    {!all && <Picker kind="levels" items={levels} change={setLevels} refresh={refresh} />}
+    <h2>{panel ? 'Edit panel' : 'New panel'}</h2>
+    <fieldset className="editor-fields" disabled={busy}>
+      <Tabs label="Panel editor" tabs={panelTabs} active={tab} change={setTab}>
+        {tab === 'Panel Settings' && <div className="panel-fields">
+          <div className="form-grid">
+            <label>Panel name<input value={name} onChange={event => setName(event.target.value)} maxLength={80} required /></label>
+            <label>Grid columns<input type="number" min={2} max={12} value={Number.isNaN(columns) ? '' : columns}
+              onChange={event => setColumns(event.target.valueAsNumber)} required /></label>
+          </div>
+          <div className="checks">
+            <label className="check"><input type="checkbox" checked={useTake} onChange={event => setUseTake(event.target.checked)} /> Use TAKE</label>
+            <label className="check"><input type="checkbox" checked={all} onChange={event => setAll(event.target.checked)} /> All levels</label>
+          </div>
+          {!all && <PanelLevels items={levels} change={setLevels} refresh={refresh} />}
+        </div>}
+        {tab === 'Sources' && <AssignmentPicker key={tab} kind="sources" items={sources} change={setSources} refresh={refresh} />}
+        {tab === 'Destinations' && <AssignmentPicker key={tab} kind="destinations" items={destinations} change={setDestinations} refresh={refresh} />}
+        {tab === 'Salvos' && <AssignmentPicker key={tab} kind="salvos" items={salvos} change={setSalvos} refresh={refresh} />}
+      </Tabs>
+    </fieldset>
     {error && <Notice error>{error}</Notice>}
-    <div className="actions"><button type="button" onClick={cancel}>Cancel</button><button className="primary"
-      disabled={busy || !sources.length || !destinations.length || (!all && !levels.length)}>{busy ? 'Saving…' : 'Save panel'}</button></div>
+    <div className="actions"><button type="button" disabled={busy} onClick={cancel}>Cancel</button>
+      <button className="primary" disabled={busy || !sources.length || !destinations.length || (!all && !levels.length)}>
+        {busy ? 'Saving…' : 'Save panel'}</button></div>
   </form>
 }
-

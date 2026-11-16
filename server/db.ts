@@ -38,13 +38,33 @@ export class Store {
       );
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS takes (
-        user_id TEXT NOT NULL REFERENCES users(id), id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        user_id TEXT NOT NULL, username TEXT NOT NULL, id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         attempted INTEGER NOT NULL DEFAULT 0, result TEXT, created_at INTEGER NOT NULL,
         PRIMARY KEY (user_id, id)
       );
     `)
+    this.migrateTakes()
     this.sql.prepare('INSERT OR IGNORE INTO session_activity SELECT token, ? FROM sessions WHERE expires > ?')
       .run(Date.now(), Date.now())
+  }
+
+  private migrateTakes() {
+    this.sql.transaction(() => {
+      const legacy = this.sql.pragma('foreign_key_list(takes)') as { table: string }[]
+      if (!legacy.some(key => key.table === 'users')) return
+      this.sql.exec(`
+        CREATE TABLE takes_new (
+          user_id TEXT NOT NULL, username TEXT NOT NULL, id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+          attempted INTEGER NOT NULL DEFAULT 0, result TEXT, created_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, id)
+        );
+        INSERT INTO takes_new (user_id, username, id, fingerprint, attempted, result, created_at)
+        SELECT takes.user_id, coalesce(users.username, takes.user_id), takes.id, takes.fingerprint, takes.attempted, takes.result, takes.created_at
+        FROM takes LEFT JOIN users ON users.id = takes.user_id;
+        DROP TABLE takes;
+        ALTER TABLE takes_new RENAME TO takes;
+      `)
+    }).immediate()
   }
 
   recoverTakes() {
@@ -72,6 +92,13 @@ export class Store {
   users() {
     return (this.sql.prepare('SELECT * FROM users ORDER BY username COLLATE NOCASE').all() as UserRow[])
       .map(row => this.user(row))
+  }
+
+  deleteUser(id: string) {
+    this.sql.transaction(() => {
+      this.sql.prepare('DELETE FROM sessions WHERE user_id = ?').run(id)
+      this.sql.prepare('DELETE FROM users WHERE id = ?').run(id)
+    })()
   }
 
   saveUser(input: { username: string; password?: string; enabled: boolean; panelIds: string[] }, id?: string, role: User['role'] = 'operator') {
@@ -147,6 +174,10 @@ export class Store {
     return this.findPanel(id)!
   }
 
+  deletePanel(id: string) {
+    this.sql.prepare('DELETE FROM panels WHERE id = ?').run(id)
+  }
+
   alias(kind: Kind, item: Binding) {
     const row = this.sql.prepare('SELECT label FROM aliases WHERE kind = ? AND id = ? AND name = ?')
       .get(kind, item.id, item.name) as { label: string } | undefined
@@ -187,8 +218,9 @@ export class Store {
     return this.sql.prepare('SELECT fingerprint,result,attempted FROM takes WHERE user_id = ? AND id = ?')
       .get(user, id) as ActionRow | undefined
   }
-  recordTake(user: string, id: string, fingerprint: string) {
-    this.sql.prepare('INSERT INTO takes (user_id,id,fingerprint,created_at) VALUES (?,?,?,?)').run(user, id, fingerprint, Date.now())
+  recordTake(user: string, username: string, id: string, fingerprint: string) {
+    this.sql.prepare('INSERT INTO takes (user_id,username,id,fingerprint,created_at) VALUES (?,?,?,?,?)')
+      .run(user, username, id, fingerprint, Date.now())
   }
   attempted(user: string, id: string) {
     this.sql.prepare('UPDATE takes SET attempted = 1 WHERE user_id = ? AND id = ?').run(user, id)

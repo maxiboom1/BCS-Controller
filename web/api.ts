@@ -21,8 +21,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown, signa
   return data as T
 }
 export type CatalogueRow = Item & { alias: string }
-export type CataloguePage = { items: CatalogueRow[]; total: number }
-export function catalogue(kind: Kind, q: string, page: number, signal?: AbortSignal) {
-  return api<CataloguePage>('/admin/catalogue/' + kind + '?' + new URLSearchParams({ q, page: String(page) }), 'GET', undefined, signal)
+export function catalogue(kind: Kind, signal?: AbortSignal) {
+  return api<{ items: CatalogueRow[] }>('/admin/catalogue/' + kind + '?all=1', 'GET', undefined, signal)
 }
 

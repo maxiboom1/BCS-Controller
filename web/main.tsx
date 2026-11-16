@@ -156,7 +156,7 @@ function App() {
         <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={signOut}><LogOut size={18} /></button></div>
     </header>
     {state.router.adminDisconnected && <div className="disconnect-banner" role="alert">Server Disconnected</div>}
-    {isAdmin ? <>{error && <Notice error>{error}</Notice>}<Admin status={status} revision={revision} /></>
+    {isAdmin ? <>{error && <Notice error>{error}</Notice>}<Admin status={status} revision={revision} currentUserId={state.user.id} /></>
       : <Operator panel={panel} state={state} status={status} error={error} update={applyRoute} />}
   </div>
 }

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertCircle, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { AlertCircle, Search } from 'lucide-react'
 import type { Kind, RouterStatus } from '../shared/model.ts'
 import { catalogue } from './api.ts'
-import type { CataloguePage } from './api.ts'
+import type { CatalogueRow } from './api.ts'
 
 export function StatusBadge({ status }: { status: RouterStatus }) {
   const label = { offline: 'Disconnected', connecting: 'Connecting', syncing: 'Synchronizing', retrying: 'Reconnecting', live: 'Connected' }[status.state]
@@ -22,35 +22,42 @@ export function SearchBox({ value, onChange, label }: { value: string; onChange:
   </label>
 }
 
-export function Pagination({ page, total, change }: { page: number; total: number; change: (page: number) => void }) {
-  const pages = Math.max(1, Math.ceil(total / 50))
-  return <div className="pagination">
-    <span>{total.toLocaleString()} entries · Page {page} of {pages}</span>
-    <button className="icon-button" type="button" aria-label="Previous page" disabled={page === 1} onClick={() => change(page - 1)}><ChevronLeft size={18} /></button>
-    <button className="icon-button" type="button" aria-label="Next page" disabled={page >= pages} onClick={() => change(page + 1)}><ChevronRight size={18} /></button>
-  </div>
-}
-
 export function useCatalogue(kind: Kind, refresh: number) {
-  const [q, setQ] = useState('')
-  const [page, setPage] = useState(1)
-  const [result, setResult] = useState<CataloguePage>({ items: [], total: 0 })
+  const [items, setItems] = useState<CatalogueRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    const timer = setTimeout(() => {
-      catalogue(kind, q, page, controller.signal).then(value => {
-        setResult(value)
-        if (page > Math.max(1, Math.ceil(value.total / 50))) setPage(1)
-      }).catch((err: Error) => {
-        if (!controller.signal.aborted) setError(err.message)
-      }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    }, 150)
-    return () => { clearTimeout(timer); controller.abort() }
-  }, [kind, q, page, refresh])
-  return { q, setQ: (value: string) => { setQ(value); setPage(1) }, page, setPage, result, loading, error }
+    catalogue(kind, controller.signal).then(value => {
+      if (!controller.signal.aborted) setItems(value.items)
+    }).catch((err: Error) => {
+      if (!controller.signal.aborted) setError(err.message)
+    }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [kind, refresh])
+  return { items, loading, error }
+}
+
+export function Tabs<T extends string>({ label, tabs, active, change, children }: {
+  label: string; tabs: readonly T[]; active: T; change: (tab: T) => void; children: ReactNode
+}) {
+  const id = useId()
+  return <>
+    <div className="admin-tabs" role="tablist" aria-label={label}>{tabs.map((tab, index) =>
+      <button key={tab} id={id + index} type="button" role="tab" aria-selected={active === tab}
+        tabIndex={active === tab ? 0 : -1} aria-controls={id + '-panel'} onClick={() => change(tab)}
+        onKeyDown={event => {
+          const next = { ArrowLeft: (index - 1 + tabs.length) % tabs.length, ArrowRight: (index + 1) % tabs.length,
+            Home: 0, End: tabs.length - 1 }[event.key]
+          if (next === undefined) return
+          event.preventDefault()
+          change(tabs[next])
+          document.getElementById(id + next)?.focus()
+        }}>{tab}</button>
+    )}</div>
+    <div role="tabpanel" aria-labelledby={id + tabs.indexOf(active)} id={id + '-panel'}>{children}</div>
+  </>
 }
 

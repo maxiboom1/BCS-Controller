@@ -10,7 +10,7 @@ import type { ControllerSettings, Kind, SettingsView, Snapshot } from '../shared
 import type { Store } from './db.ts'
 import type { Router } from './router.ts'
 import { checkPassword, hashPassword, newToken, tokenHash } from './auth.ts'
-import { validBindings, viewPanel, viewRoute } from './views.ts'
+import { validBindings, viewAdminPanel, viewPanel, viewRoute } from './views.ts'
 import { takeService } from './takes.ts'
 import { consoleLogger, release } from './log.ts'
 import { Presence } from './presence.ts'
@@ -23,6 +23,7 @@ const binding = z.object({ id: z.string().min(1).max(120), name: z.string().min(
 const panelInput = z.object({
   name: z.string().trim().min(1).max(80), sources: z.array(binding).min(1).max(500),
   destinations: z.array(binding).min(1).max(500), levels: z.array(binding).min(1).max(32).nullable(),
+  salvos: z.array(binding).max(500).optional(),
   columns: z.number().int().min(2).max(12), useTake: z.boolean(),
 })
 const takeInput = z.object({ actionId: z.uuid(), sourceId: z.string().regex(/^[0-9A-F]{4}$/),
@@ -55,9 +56,8 @@ export async function createApp(options: AppOptions) {
   const streams = new Map<ServerResponse, { session: string; paused: boolean; queue: string[]; bytes: number }>()
   const logins = new Map<string, { attempts: number; until: number }>()
   let passwordJobs = 0
-  const executeTake = takeService(db, router, ({ userId, panel, source, destination, attempted, result }) => {
-    const user = db.findUser(userId)?.username ?? 'Unknown user'
-    const detail = `${user} · ${source} → ${destination} · panel ${panel}`
+  const executeTake = takeService(db, router, ({ username, panel, source, destination, attempted, result }) => {
+    const detail = `${username} · ${source} → ${destination} · panel ${panel}`
     if (result.outcome === 'confirmed') log(`${attempted ? 'TAKE verified' : 'Already routed'} · ${detail}`)
     else log(`TAKE ${result.outcome} · ${detail} · ${result.message}`, 'WARN')
   })
@@ -242,7 +242,31 @@ export async function createApp(options: AppOptions) {
 
   app.get('/api/admin', async request => {
     admin(request)
-    return { users: db.users(), panels: db.panels().map(panel => viewPanel(db, router, panel)), router: router.status }
+    return { users: db.users(), panels: db.panels().map(panel => viewAdminPanel(db, router, panel)), router: router.status }
+  })
+  app.delete('/api/admin/users/:id', async request => {
+    const actor = admin(request)
+    const { id } = uuidParam.parse(request.params)
+    const target = db.findUser(id)
+    if (!target) throw new HttpError(404, 'User was deleted.')
+    if (id === actor.id || (target.role === 'admin' &&
+        !db.users().some(user => user.id !== id && user.role === 'admin' && user.enabled))) {
+      throw new HttpError(409, 'This administrator account must stay available.')
+    }
+    db.deleteUser(id)
+    log(`Deleted user ${target.username} · by ${actor.username}`)
+    publish()
+    return { ok: true }
+  })
+  app.delete('/api/admin/panels/:id', async request => {
+    const actor = admin(request)
+    const { id } = uuidParam.parse(request.params)
+    const target = db.findPanel(id)
+    if (!target) throw new HttpError(404, 'Panel was deleted.')
+    db.deletePanel(id)
+    log(`Deleted panel ${target.name} · by ${actor.username}`)
+    publish()
+    return { ok: true }
   })
   app.get('/api/admin/sessions', async request => {
     admin(request)
@@ -288,9 +312,11 @@ export async function createApp(options: AppOptions) {
       if (id && !previous) throw new HttpError(404, 'User not found.')
       if (previous?.role === 'admin' && !input.enabled) throw new HttpError(400, 'The administrator must stay enabled.')
       if (!id && !input.password) throw new HttpError(400, 'Password required.')
-      if (input.panelIds.some(panelId => !db.findPanel(panelId))) throw new HttpError(400, 'Unknown panel assignment.')
+      if (input.panelIds.some(panelId => !db.findPanel(panelId))) throw new HttpError(409, 'A selected panel was deleted.')
       const hashed = input.password ? await hashPassword(input.password) : undefined
       const actor = admin(request)
+      if (id && !db.findUser(id)) throw new HttpError(404, 'User was deleted.')
+      if (input.panelIds.some(panelId => !db.findPanel(panelId))) throw new HttpError(409, 'A selected panel was deleted.')
       const result = db.saveUser({ ...input, password: hashed }, id)
       log(`${id ? 'Updated' : 'Created'} user ${result.username} · by ${actor.username}`)
       publish()
@@ -299,18 +325,22 @@ export async function createApp(options: AppOptions) {
     app.route({ method, url: '/api/admin/panels' + (method === 'PUT' ? '/:id' : ''), handler: async request => {
       const actor = admin(request)
       const id = method === 'PUT' ? uuidParam.parse(request.params).id : undefined
-      if (id && !db.findPanel(id)) throw new HttpError(404, 'Panel not found.')
+      const previous = id ? db.findPanel(id) : undefined
+      if (id && !previous) throw new HttpError(404, 'Panel was deleted.')
       const input = panelInput.parse(request.body)
       if (!validBindings(router.catalogue.sources, input.sources) ||
           !validBindings(router.catalogue.destinations, input.destinations) ||
           (input.levels && !validBindings(router.catalogue.levels, input.levels))) {
         throw new HttpError(409, 'Select valid, distinct catalogue entries before saving.')
       }
-      const panel = db.savePanel(input, id, input.levels === null
+      if (input.salvos && !validBindings(router.catalogue.salvos, input.salvos)) {
+        throw new HttpError(409, 'Select valid, distinct salvos before saving.')
+      }
+      const panel = db.savePanel({ ...input, salvos: input.salvos ?? previous?.salvos ?? [] }, id, input.levels === null
         ? router.catalogue.levels.map(({ id, name }) => ({ id, name })) : undefined)
       log(`${id ? 'Updated' : 'Created'} panel ${panel.name} · by ${actor.username}`)
       publish()
-      return viewPanel(db, router, panel)
+      return viewAdminPanel(db, router, panel)
     } })
   }
 
@@ -324,7 +354,10 @@ export async function createApp(options: AppOptions) {
   app.get('/api/admin/catalogue/:kind', async request => {
     admin(request)
     const { kind } = z.object({ kind: catalogKind }).parse(request.params)
-    const { q, page } = z.object({ q: z.string().max(120).default(''), page: z.coerce.number().int().min(1).max(1000).default(1) }).parse(request.query)
+    const { q, page, all } = z.object({
+      q: z.string().max(120).default(''), page: z.coerce.number().int().min(1).max(1000).default(1),
+      all: z.literal('1').optional(),
+    }).parse(request.query)
     const aliases = db.aliases(kind)
     const needle = q.toLowerCase()
     const rows = router.catalogue[kind].filter(item => item.name.trim()).flatMap(item => {
@@ -333,7 +366,7 @@ export async function createApp(options: AppOptions) {
       return (item.name + ' ' + alias).toLowerCase().includes(needle)
         ? [{ ...item, alias, label: alias || item.name }] : []
     })
-    return { items: rows.slice((page - 1) * 50, page * 50), total: rows.length }
+    return { items: all ? rows : rows.slice((page - 1) * 50, page * 50), total: rows.length }
   })
   app.put('/api/admin/aliases/:kind', async request => {
     const actor = admin(request)

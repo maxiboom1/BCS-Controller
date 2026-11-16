@@ -1,122 +1,140 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
-import { Clapperboard, Grid2X2, ListVideo, Monitor, Plus, Settings, Users, Video } from 'lucide-react'
-import type { PanelView, RouterStatus, User } from '../shared/model.ts'
-import { api } from './api.ts'
-import type { CatalogueRow } from './api.ts'
-import { Notice, Pagination, SearchBox, useCatalogue } from './components.tsx'
+import { Clapperboard, Grid2X2, Monitor, Plus, Settings, Tags, Users } from 'lucide-react'
+import type { AdminPanelView, RouterStatus, User } from '../shared/model.ts'
+import { api, ApiError } from './api.ts'
+import { Notice, SearchBox } from './components.tsx'
 import { PanelEditor, UserEditor } from './adminEditors.tsx'
+import { AliasTable, LabelsTab } from './labels.tsx'
 import { SettingsTab } from './settings.tsx'
 import { SessionStatus } from './sessionStatus.tsx'
 
 const tabs = [
   ['Users', Users], ['Panels', Grid2X2], ['Settings', Settings], ['Status', Monitor],
-  ['Sources', Video], ['Destinations', ListVideo], ['Salvos', Clapperboard],
+  ['Labels', Tags], ['Salvos', Clapperboard],
 ] as const
 type Tab = typeof tabs[number][0]
-type AdminData = { users: User[]; panels: PanelView[]; router: RouterStatus }
+type AdminData = { users: User[]; panels: AdminPanelView[]; router: RouterStatus }
 
-function AliasEditor({ row, kind, saved, cancel }: { row: CatalogueRow; kind: string; saved: () => void; cancel: () => void }) {
-  const [alias, setAlias] = useState(row.alias)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    try { await api('/admin/aliases/' + kind, 'PUT', { id: row.id, name: row.name, alias }); saved() }
-    catch (err) { setError((err as Error).message) }
-    finally { setBusy(false) }
-  }
-  return <form className="alias-editor" onSubmit={submit}>
-    <input aria-label={'Alias for ' + row.name} value={alias} maxLength={80} onChange={e => setAlias(e.target.value)} autoFocus />
-    <button className="primary" disabled={busy}>Save</button><button type="button" onClick={cancel}>Cancel</button>
-    {error && <Notice error>{error}</Notice>}
-  </form>
-}
-
-function AliasTable({ kind, refresh }: { kind: 'sources' | 'destinations' | 'salvos'; refresh: number }) {
-  const [edit, setEdit] = useState<string>()
-  const [local, setLocal] = useState(0)
-  const rows = useCatalogue(kind, refresh + local)
-  return <div className="surface">
-    <div className="toolbar"><SearchBox value={rows.q} onChange={rows.setQ} label={'Search ' + kind} /></div>
-    {rows.error && <Notice error>{rows.error}</Notice>}
-    <div className="table-scroll"><table><thead><tr><th>BCS</th><th>Alias</th></tr></thead><tbody>
-      {rows.result.items.map(row => <tr key={row.id}>
-        <td>{row.name}</td><td>{edit === row.id
-          ? <AliasEditor row={row} kind={kind} saved={() => { setEdit(undefined); setLocal(x => x + 1) }} cancel={() => setEdit(undefined)} />
-          : <button className="alias-link" type="button" aria-label={'Edit alias for ' + row.name} onClick={() => setEdit(row.id)}>
-            {row.alias || <span className="muted">Add alias</span>}</button>}</td>
-      </tr>)}
-      {!rows.result.items.length && <tr><td colSpan={2} className="empty-cell">{rows.loading ? 'Loading catalogue…' : 'No catalogue entries. Connect the router or change the search.'}</td></tr>}
-    </tbody></table></div>
-    <div className="toolbar"><Pagination page={rows.page} total={rows.result.total} change={rows.setPage} /></div>
-  </div>
-}
-
-export function Admin({ status, revision }: { status: RouterStatus; revision: number }) {
+export function Admin({ status, revision, currentUserId }: { status: RouterStatus; revision: number; currentUserId: string }) {
   const [tab, setTab] = useState<Tab>('Users')
   const [data, setData] = useState<AdminData>()
   const [local, setLocal] = useState(0)
   const [editing, setEditing] = useState<string>()
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
   useEffect(() => {
     const controller = new AbortController()
     api<AdminData>('/admin', 'GET', undefined, controller.signal).then(result => {
-      setData(result)
-      setError('')
-    }).catch((err: Error) => { if (!controller.signal.aborted) setError(err.message) })
+      if (!controller.signal.aborted) {
+        setData(result)
+        setLoadError('')
+      }
+    }).catch((err: Error) => { if (!controller.signal.aborted) setLoadError(err.message) })
     return () => controller.abort()
   }, [revision, local])
-  const save = () => { setEditing(undefined); setLocal(x => x + 1) }
+
+  const user = tab === 'Users' ? data?.users.find(item => item.id === editing) : undefined
+  const panel = tab === 'Panels' ? data?.panels.find(item => item.id === editing) : undefined
+  const targetDeleted = Boolean(editing && editing !== 'new' && data && !user && !panel)
+  useEffect(() => {
+    if (targetDeleted) {
+      setError(tab === 'Users' ? 'User was deleted.' : 'Panel was deleted.')
+      setEditing(undefined)
+    }
+  }, [targetDeleted, tab])
+
+  function closeEditor() { setEditing(undefined) }
+  function refresh() { setLocal(value => value + 1) }
+  function save() { closeEditor(); refresh() }
+  function missing(message: string) { setError(message); save() }
+
+  async function remove(kind: 'users' | 'panels', id: string, message: string) {
+    if (!window.confirm(message)) return
+    setError('')
+    setDeleting(true)
+    try { await api('/admin/' + kind + '/' + id, 'DELETE') }
+    catch (err) { setError((err as Error).message) }
+    finally { refresh(); setDeleting(false) }
+  }
+
   const needle = query.toLowerCase()
-  const users = data?.users.filter(user => user.username.toLowerCase().includes(needle)) ?? []
-  const panels = data?.panels.filter(panel => panel.name.toLowerCase().includes(needle)) ?? []
+  const users = data?.users.filter(item => item.username.toLowerCase().includes(needle)) ?? []
+  const panels = data?.panels.filter(item => item.name.toLowerCase().includes(needle)) ?? []
+  const enabledAdmins = data?.users.filter(item => item.role === 'admin' && item.enabled).length ?? 0
+  const assignedUsers = new Map<string, number>()
+  for (const item of data?.users ?? []) {
+    for (const id of item.panelIds) assignedUsers.set(id, (assignedUsers.get(id) ?? 0) + 1)
+  }
+  const editorVisible = Boolean(editing && !targetDeleted)
+
   return <div className="admin-layout">
-    <aside className="sidebar"><span className="eyebrow">Workspace</span><nav aria-label="Admin sections">{tabs.map(([name, Icon]) =>
+    <aside className="sidebar"><nav aria-label="Admin sections">{tabs.map(([name, Icon]) =>
       <button key={name} type="button" aria-current={tab === name ? 'page' : undefined} onClick={() => {
-        setTab(name); setEditing(undefined); setQuery('')
+        if (name === tab) return
+        setTab(name); closeEditor(); setQuery(''); setError('')
       }}><Icon size={18} aria-hidden="true" />{name}</button>)}</nav></aside>
-    <main className="admin-main" id="main">
-      <div className="page-heading"><span className="eyebrow">Administration</span><h1>{tab}</h1>
-        <p>{{ Users: 'Manage operator accounts and panel access.', Panels: 'Build routing grids for each operator workflow.',
-          Settings: 'Manage the BCS connection and web server.', Status: 'Monitor online client sessions.',
-          Sources: 'Set operator-facing source names.',
-          Destinations: 'Set operator-facing destination names.', Salvos: 'Manage display names for BCS salvos.' }[tab]}</p></div>
-      {error && <Notice error>{error}</Notice>}
+    <main className="admin-main" id="main" aria-label={tab}>
+      {(error || loadError) && <Notice error>{error || loadError}</Notice>}
       {tab === 'Settings' && <SettingsTab status={status} />}
       {tab === 'Status' && <SessionStatus />}
-      {(tab === 'Sources' || tab === 'Destinations' || tab === 'Salvos') &&
-        <AliasTable key={tab} kind={tab.toLowerCase() as 'sources' | 'destinations' | 'salvos'} refresh={revision} />}
-      {data && tab === 'Users' && <>
-        {editing && <UserEditor key={editing} user={data.users.find(user => user.id === editing)} panels={data.panels} done={save} cancel={() => setEditing(undefined)} />}
-        <div className="surface"><div className="toolbar"><SearchBox value={query} onChange={setQuery} label="Search users" />
-          <button className="primary" type="button" onClick={() => setEditing('new')}><Plus size={17} /> New user</button></div>
-          <div className="table-scroll"><table><thead><tr><th>Username</th><th>Role</th><th>Panels</th><th>Account</th><th><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{users.map(user => <tr key={user.id}>
-              <td className="strong">{user.username}</td><td className="capitalize">{user.role}</td><td>{user.panelIds.length}</td>
-              <td><span className={'pill ' + (user.enabled ? 'good' : '')}>{user.enabled ? 'Enabled' : 'Disabled'}</span></td>
-              <td><button type="button" onClick={() => setEditing(user.id)} aria-label={'Edit user ' + user.username}>Edit</button></td></tr>)}
-              {!users.length && <tr><td colSpan={5} className="empty-cell">No matching users.</td></tr>}</tbody></table></div></div>
-      </>}
-      {data && tab === 'Panels' && <>
-        {editing && <PanelEditor key={editing} panel={data.panels.find(panel => panel.id === editing)} refresh={revision} done={save} cancel={() => setEditing(undefined)} />}
-        <div className="surface"><div className="toolbar"><SearchBox value={query} onChange={setQuery} label="Search panels" />
-          <button className="primary" type="button" onClick={() => setEditing('new')}><Plus size={17} /> New panel</button></div>
-          <div className="table-scroll"><table><thead><tr><th>Panel</th><th>Sources</th><th>Destinations</th><th>Levels</th><th>Mode</th><th><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{panels.map(panel => <tr key={panel.id}>
-              <td className="strong">{panel.name}{(!panel.validLevels || [...panel.sources, ...panel.destinations].some(row => !row.valid)) &&
-                <small className="danger"> · Review binding</small>}</td>
-              <td>{panel.sources.length}</td><td>{panel.destinations.length}</td><td>{panel.allLevels ? 'All' : panel.levels.length}</td>
-              <td>{panel.useTake ? 'Staged TAKE' : 'Immediate'}</td><td><button type="button" aria-label={'Edit panel ' + panel.name}
-                onClick={() => setEditing(panel.id)}>Edit</button></td></tr>)}
-              {!panels.length && <tr><td colSpan={6} className="empty-cell">{data.panels.length
-                ? 'No matching panels.' : 'No panels yet. Connect the router to populate the catalogues, then create a panel.'}</td></tr>}
-            </tbody></table></div></div>
-      </>}
+      {tab === 'Labels' && <LabelsTab refresh={revision} />}
+      {tab === 'Salvos' && <AliasTable kind="salvos" refresh={revision} />}
+      {data && tab === 'Users' && (editorVisible
+        ? <UserEditor key={editing} user={user} panels={data.panels} done={save} cancel={closeEditor} missing={missing} />
+        : <div className="surface">
+          <div className="toolbar"><SearchBox value={query} onChange={setQuery} label="Search users" />
+            <button className="primary" type="button" onClick={() => { setError(''); setEditing('new') }}><Plus size={17} /> New user</button></div>
+          <div className="table-scroll"><table aria-label="Users"><thead><tr>
+            <th>Username</th><th>Role</th><th>Panels</th><th>Account</th><th><span className="sr-only">Actions</span></th>
+          </tr></thead><tbody>
+            {users.map(item => {
+              const protectedAccount = item.id === currentUserId || (item.role === 'admin' && item.enabled && enabledAdmins <= 1)
+              return <tr key={item.id}>
+                <td className="strong">{item.username}</td><td className="capitalize">{item.role}</td><td>{item.panelIds.length}</td>
+                <td><span className={'pill ' + (item.enabled ? 'good' : '')}>{item.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                <td><div className="table-actions">
+                  <button type="button" aria-label={'Edit user ' + item.username}
+                    onClick={() => { setError(''); setEditing(item.id) }}>Edit</button>
+                  <button type="button" className="danger-button" aria-label={'Delete user ' + item.username}
+                    title={protectedAccount ? 'This administrator account must stay available' : undefined}
+                    disabled={deleting || protectedAccount}
+                    onClick={() => void remove('users', item.id, `Delete ${item.username} and sign out all their sessions?`)}>Delete</button>
+                </div></td>
+              </tr>
+            })}
+            {!users.length && <tr><td colSpan={5} className="empty-cell">No matching users.</td></tr>}
+          </tbody></table></div>
+        </div>)}
+      {data && tab === 'Panels' && (editorVisible
+        ? <PanelEditor key={editing} panel={panel} refresh={revision} done={save} cancel={closeEditor} missing={missing} />
+        : <div className="surface">
+          <div className="toolbar"><SearchBox value={query} onChange={setQuery} label="Search panels" />
+            <button className="primary" type="button" onClick={() => { setError(''); setEditing('new') }}><Plus size={17} /> New panel</button></div>
+          <div className="table-scroll"><table aria-label="Panels"><thead><tr>
+            <th>Panel</th><th>Sources</th><th>Destinations</th><th>Salvos</th><th>Levels</th><th>Mode</th><th><span className="sr-only">Actions</span></th>
+          </tr></thead><tbody>
+            {panels.map(item => {
+              const count = assignedUsers.get(item.id) ?? 0
+              return <tr key={item.id}>
+                <td className="strong">{item.name}{(!item.validLevels || [...item.sources, ...item.destinations, ...item.salvos].some(row => !row.valid)) &&
+                  <small className="danger"> · Review binding</small>}</td>
+                <td>{item.sources.length}</td><td>{item.destinations.length}</td><td>{item.salvos.length}</td>
+                <td>{item.allLevels ? 'All' : item.levels.length}</td><td>{item.useTake ? 'Staged TAKE' : 'Immediate'}</td>
+                <td><div className="table-actions">
+                  <button type="button" aria-label={'Edit panel ' + item.name}
+                    onClick={() => { setError(''); setEditing(item.id) }}>Edit</button>
+                  <button type="button" className="danger-button" disabled={deleting} aria-label={'Delete panel ' + item.name}
+                    onClick={() => void remove('panels', item.id,
+                      `Delete ${item.name}? This removes the panel from ${count} assigned ${count === 1 ? 'user' : 'users'}.`)}>Delete</button>
+                </div></td>
+              </tr>
+            })}
+            {!panels.length && <tr><td colSpan={7} className="empty-cell">{data.panels.length ? 'No matching panels.' : 'No panels yet.'}</td></tr>}
+          </tbody></table></div>
+        </div>)}
     </main>
   </div>
 }
-

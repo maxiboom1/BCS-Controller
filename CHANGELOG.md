@@ -2,6 +2,12 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.03 · 2026-11-16
+
+- Simplified Admin navigation, combined source and destination aliases under Labels, and standardized compact tables.
+- Added tabbed panel editing with bulk transfers, ordered assignments, and Admin-only salvo configuration.
+- Added user and panel deletion, with session revocation and retained TAKE history.
+
 ## 1.0.02 · 2026-11-10
 
 - Enabled HTTP access on the workstation's private LAN address. The console prints the LAN URL at startup.
