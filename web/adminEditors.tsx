@@ -30,9 +30,9 @@ export function UserEditor({ user, panels, done, cancel, missing }: EditorAction
       else setError((err as Error).message)
     } finally { setBusy(false) }
   }
-  return <form className="surface editor" onSubmit={save}>
+  return <form className="admin-view editor" onSubmit={save}>
     <h2>{user ? 'Edit user' : 'New user'}</h2>
-    <fieldset className="editor-fields" disabled={busy}>
+    <fieldset className="editor-fields admin-body" disabled={busy}>
       <div className="form-grid">
         <label>Username<input value={username} onChange={event => setUsername(event.target.value)}
           required minLength={2} maxLength={40} autoComplete="off" /></label>
@@ -113,18 +113,18 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
     } finally { setBusy(false) }
   }
 
-  return <form className="surface editor" onSubmit={save}>
+  return <form className="admin-view editor" onSubmit={save}>
     <h2>{panel ? 'Edit panel' : 'New panel'}</h2>
-    <fieldset className="editor-fields" disabled={busy}>
+    <fieldset className="editor-fields admin-view" disabled={busy}>
       <Tabs label="Panel editor" tabs={panelTabs} active={tab} change={setTab}>
-        {tab === 'Panel Settings' && <div className="panel-fields">
+        {tab === 'Panel Settings' && <div className="panel-fields admin-body">
           <div className="form-grid">
             <label>Panel name<input value={name} onChange={event => setName(event.target.value)} maxLength={80} required /></label>
             <label>Grid columns<input type="number" min={2} max={12} value={Number.isNaN(columns) ? '' : columns}
               onChange={event => setColumns(event.target.valueAsNumber)} required /></label>
           </div>
           <div className="checks">
-            <label className="check"><input type="checkbox" checked={useTake} onChange={event => setUseTake(event.target.checked)} /> Use TAKE</label>
+            <label className="check"><input type="checkbox" checked={useTake} onChange={event => setUseTake(event.target.checked)} /> Use Take</label>
             <label className="check"><input type="checkbox" checked={all} onChange={event => setAll(event.target.checked)} /> All levels</label>
           </div>
           {!all && <PanelLevels items={levels} change={setLevels} refresh={refresh} />}

@@ -86,7 +86,7 @@ export function AssignmentPicker({ kind, items, change, refresh }: {
     {listing.error && <Notice error>{listing.error}</Notice>}
     {overLimit && <Notice error>A panel can contain up to 500 {kind}.</Notice>}
     <div className="assignment-picker">
-      <div className="assignment-side surface">
+      <div className="assignment-side">
         <div className="assignment-toolbar"><SearchBox label={'Find ' + kind} value={query}
           onChange={value => { setQuery(value); left.replace([]) }} /></div>
         <CatalogueTable label={'Available ' + kind} columns={['Available']} rows={available} selection={left}
@@ -98,7 +98,7 @@ export function AssignmentPicker({ kind, items, change, refresh }: {
         <button type="button" className="icon-button transfer-remove" aria-label={'Remove selected ' + kind} title={'Remove selected ' + kind}
           disabled={!removing} onClick={remove}><ArrowLeft size={18} /></button>
       </div>
-      <div className="assignment-side surface">
+      <div className="assignment-side">
         <div className="assignment-toolbar">
           <button type="button" disabled={assigned.length < 2 || listing.loading || !!listing.error}
             onClick={() => change(sortAssignments(assigned, listing.items, 'database'))}>Database order</button>

@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { OnlineSession } from '../shared/model.ts'
 import { api } from './api.ts'
-import { Notice } from './components.tsx'
-
-function idleTime(now: number, lastActivityAt: number) {
-  const seconds = Math.max(0, Math.floor((now - lastActivityAt) / 1000))
-  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-    .map(value => String(value).padStart(2, '0')).join(':')
-}
+import { elapsedClock, Notice } from './components.tsx'
 
 export function SessionStatus() {
   const [sessions, setSessions] = useState<OnlineSession[]>()
@@ -44,18 +38,18 @@ export function SessionStatus() {
     finally { setBusy('') }
   }
 
-  return <>
+  return <div className="admin-view">
     {error && <Notice error>{error}</Notice>}
-    <div className="surface table-scroll"><table><thead><tr>
+    <div className="table-scroll"><table aria-label="Clients"><thead><tr>
       <th>User</th><th>Client IP</th><th>Browser</th><th>Idle</th><th><span className="sr-only">Actions</span></th>
     </tr></thead><tbody>
       {sessions?.map(session => <tr key={session.id}>
         <td>{session.username}{session.current && <small className="muted"> · This session</small>}</td>
-        <td>{session.ip}</td><td>{session.browser}</td><td>{idleTime(now, session.lastActivityAt)}</td>
+        <td>{session.ip}</td><td>{session.browser}</td><td>{elapsedClock(now, session.lastActivityAt)}</td>
         <td><button className="danger-button" type="button" disabled={!!busy} onClick={() => void disconnect(session)}
           aria-label={'Disconnect session for ' + session.username}>Disconnect session</button></td>
       </tr>)}
       {!sessions?.length && <tr><td colSpan={5} className="empty-cell">{sessions ? 'No online sessions.' : 'Loading sessions…'}</td></tr>}
     </tbody></table></div>
-  </>
+  </div>
 }

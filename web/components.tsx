@@ -7,7 +7,13 @@ import type { CatalogueRow } from './api.ts'
 
 export function StatusBadge({ status }: { status: RouterStatus }) {
   const label = { offline: 'Disconnected', connecting: 'Connecting', syncing: 'Synchronizing', retrying: 'Reconnecting', live: 'Connected' }[status.state]
-  return <span className={'status ' + status.state}><span className="dot" aria-hidden="true" />{label}</span>
+  return <span className={'status ' + status.state} title={status.lastError ?? undefined}><span className="dot" aria-hidden="true" />{label}</span>
+}
+
+export function elapsedClock(now: number, since: number) {
+  const seconds = Math.max(0, Math.floor((now - since) / 1000))
+  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map(value => String(value).padStart(2, '0')).join(':')
 }
 
 export function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) {

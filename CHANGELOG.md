@@ -2,6 +2,13 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.04 · 2026-11-16
+
+- Made destination selection immediate from the browser's routing cache. TAKE still uses a fresh BCS preflight and readback. An uncertain TAKE requires destination verification or a successful resync before retrying.
+- Added five-second reconnects after a detected BCS failure. Operator shows **Server Disconnected** until synchronization succeeds.
+- Standardized Admin dimensions, typography, scrolling, and bottom-right actions. Moved salvo aliases into Labels and renamed Status to Clients.
+- Removed manual BCS controls from Settings and moved uptime, the active BCS address, and the release version to the Admin footer.
+
 ## 1.0.03 · 2026-11-16
 
 - Simplified Admin navigation, combined source and destination aliases under Labels, and standardized compact tables.

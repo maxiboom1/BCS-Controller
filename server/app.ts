@@ -242,7 +242,8 @@ export async function createApp(options: AppOptions) {
 
   app.get('/api/admin', async request => {
     admin(request)
-    return { users: db.users(), panels: db.panels().map(panel => viewAdminPanel(db, router, panel)), router: router.status }
+    return { users: db.users(), panels: db.panels().map(panel => viewAdminPanel(db, router, panel)),
+      router: router.status, version: release }
   })
   app.delete('/api/admin/users/:id', async request => {
     const actor = admin(request)
@@ -344,13 +345,6 @@ export async function createApp(options: AppOptions) {
     } })
   }
 
-  app.put('/api/admin/router', async request => {
-    const actor = admin(request)
-    const { enabled } = z.object({ enabled: z.boolean() }).parse(request.body)
-    if (enabled !== router.status.enabled) log(`BCS ${enabled ? 'connect' : 'disconnect'} requested · by ${actor.username}`)
-    router.enable(enabled)
-    return router.status
-  })
   app.get('/api/admin/catalogue/:kind', async request => {
     admin(request)
     const { kind } = z.object({ kind: catalogKind }).parse(request.params)

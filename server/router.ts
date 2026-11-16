@@ -11,6 +11,8 @@ type Change = { destinationId?: string; catalogue?: boolean }
 type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs'>
 export type Link = { gvg: Gvg; read: (id: string) => Promise<StatusRecord>; ensure: () => void }
 
+const RECONNECT_DELAY_MS = 5000
+
 export class Router {
   catalogue: Catalogue = emptyCatalogue()
   routes = new Map<string, StatusRecord>()
@@ -29,7 +31,7 @@ export class Router {
     this.pollIntervalMs = pollIntervalMs
     if (storedCatalogue) this.catalogue = storedCatalogue
     this.status = {
-      state: 'offline', enabled: false, adminDisconnected: false, connectedAt: null, lastError: null,
+      state: 'offline', enabled: false, connectedAt: null, lastError: null,
       mode: endpoint.mode, endpoint: endpoint.mode === 'simulator' ? 'Local GVG simulator' : endpointAddress(endpoint.host, endpoint.port),
       writes: endpoint.mode !== 'live-readonly', selectedLevels: endpoint.selectedLevels || endpoint.mode === 'simulator',
     }
@@ -43,34 +45,34 @@ export class Router {
     try {
       await this.serial(async () => {
         const enabled = this.status.enabled
-        this.enable(false, false)
+        this.enable(false)
         this.endpoint = { ...this.endpoint, host: settings.bcsHost, port: settings.bcsPort }
         this.catalogue = storedCatalogue ?? emptyCatalogue()
         this.routes.clear()
-        this.set({ endpoint: endpointAddress(settings.bcsHost, settings.bcsPort), lastError: null })
+        this.set({ endpoint: endpointAddress(settings.bcsHost, settings.bcsPort) })
         this.enable(enabled)
       })
     } finally { this.reconfiguring = false }
   }
 
-  enable(enabled: boolean, manual = true) {
+  enable(enabled: boolean) {
     if (enabled === this.status.enabled) return
     if (!enabled) {
       this.controller?.abort()
       this.controller = null
       this.connection?.close()
       this.connection = null
-      this.set({ enabled: false, state: 'offline', adminDisconnected: manual || this.status.adminDisconnected, connectedAt: null, lastError: null })
+      this.set({ enabled: false, state: 'offline', connectedAt: null })
       return
     }
     const controller = new AbortController()
     this.controller = controller
-    this.set({ enabled: true, state: 'connecting', lastError: null })
+    this.set({ enabled: true, state: 'connecting' })
     this.runner = this.runner.then(() => this.run(controller))
   }
 
   async stop() {
-    this.enable(false, false)
+    this.enable(false)
     await this.runner
     await this.tail
   }
@@ -103,18 +105,24 @@ export class Router {
 
   private async run(controller: AbortController) {
     const signal = controller.signal
-    let delay = 1000
     while (!signal.aborted) {
       let link: Gvg | undefined
+      const disconnected = new AbortController()
+      const pollSignal = AbortSignal.any([signal, disconnected.signal])
+      let retryAt = 0
+      const failed = (error: Error) => {
+        if (signal.aborted || disconnected.signal.aborted) return
+        retryAt = performance.now() + RECONNECT_DELAY_MS
+        disconnected.abort()
+        this.set({ state: 'retrying', connectedAt: null, lastError: error.message })
+      }
       try {
         this.set({ state: 'connecting', connectedAt: null })
         link = await Gvg.open(this.endpoint.host, this.endpoint.port, signal)
         const active = link
         this.connection = active
         active.onClose = error => {
-          if (this.connection === active && !signal.aborted) {
-            this.set({ state: 'retrying', connectedAt: null, lastError: error.message })
-          }
+          if (this.connection === active) failed(error)
         }
         this.set({ state: 'syncing', connectedAt: Date.now() })
         const catalogue = await active.catalogues()
@@ -125,14 +133,13 @@ export class Router {
         this.catalogue = catalogue
         this.routes = new Map([...routes].map(([id, points]) =>
           [id, { levels: this.normalize(points), revision: randomUUID() }]))
-        this.set({ state: 'live', adminDisconnected: false, lastError: null }, true)
-        delay = 1000
+        this.set({ state: 'live', lastError: null }, true)
         let healthDue = Date.now() + 10_000
         let refreshDue = Date.now() + 300_000
         while (!signal.aborted && !active.closed) {
           const started = Date.now()
           await this.serial(async () => {
-            signal.throwIfAborted()
+            pollSignal.throwIfAborted()
             if (active.closed) throw new Error('GVG connection closed')
             if (Date.now() >= healthDue) {
               await active.health()
@@ -144,21 +151,20 @@ export class Router {
               refreshDue = Date.now() + 300_000
             }
             const changes = await active.poll(this.catalogue)
-            signal.throwIfAborted()
+            pollSignal.throwIfAborted()
             for (const [id, points] of changes) this.update(id, points)
           })
-          await wait(Math.max(0, this.pollIntervalMs - (Date.now() - started)), undefined, { signal })
+          await wait(Math.max(0, this.pollIntervalMs - (Date.now() - started)), undefined, { signal: pollSignal })
         }
-        if (!signal.aborted) throw new Error(this.status.lastError ?? 'GVG connection closed')
+        failed(new Error('GVG connection closed'))
       } catch (error) {
-        if (!signal.aborted) this.set({ state: 'retrying', connectedAt: null, lastError: (error as Error).message })
+        failed(error as Error)
       } finally {
         if (this.connection === link) this.connection = null
         link?.close()
       }
       if (!signal.aborted) {
-        await wait(delay, undefined, { signal }).catch(() => {})
-        delay = Math.min(delay * 2, 30_000)
+        await wait(Math.ceil(retryAt - performance.now()), undefined, { signal }).catch(() => {})
       }
     }
   }

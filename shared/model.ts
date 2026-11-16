@@ -28,7 +28,6 @@ export type Route = { destinationId: string; revision: string; levels: Crosspoin
 export type RouterStatus = {
   state: 'offline' | 'connecting' | 'syncing' | 'retrying' | 'live'
   enabled: boolean
-  adminDisconnected: boolean
   endpoint: string
   mode: 'simulator' | 'live-readonly' | 'live'
   writes: boolean

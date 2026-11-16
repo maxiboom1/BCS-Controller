@@ -1,21 +1,26 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { FormEvent } from 'react'
+import { Pencil } from 'lucide-react'
 import { api } from './api.ts'
 import type { CatalogueRow } from './api.ts'
 import { CatalogueTable } from './catalogueTable.tsx'
 import { Notice, SearchBox, Tabs, useCatalogue } from './components.tsx'
 
 type AliasKind = 'sources' | 'destinations' | 'salvos'
-const labelTabs = ['Sources', 'Destinations'] as const
+const labelTabs = ['Sources', 'Destinations', 'Salvos'] as const
+const labelTabKinds = { Sources: 'sources', Destinations: 'destinations', Salvos: 'salvos' } as const satisfies Record<typeof labelTabs[number], AliasKind>
 
 export function LabelsTab({ refresh }: { refresh: number }) {
   const [tab, setTab] = useState<(typeof labelTabs)[number]>('Sources')
-  return <Tabs label="Labels" tabs={labelTabs} active={tab} change={setTab}>
-    <AliasTable key={tab} kind={tab === 'Sources' ? 'sources' : 'destinations'} refresh={refresh} />
-  </Tabs>
+  return <div className="admin-view">
+    <Tabs label="Labels" tabs={labelTabs} active={tab} change={setTab}>
+      <AliasTable key={tab} kind={labelTabKinds[tab]} refresh={refresh} />
+    </Tabs>
+  </div>
 }
 
-export function AliasTable({ kind, refresh }: { kind: AliasKind; refresh: number }) {
+function AliasTable({ kind, refresh }: { kind: AliasKind; refresh: number }) {
+  const formId = useId()
   const [row, setRow] = useState<CatalogueRow>()
   const [alias, setAlias] = useState('')
   const [query, setQuery] = useState('')
@@ -39,13 +44,11 @@ export function AliasTable({ kind, refresh }: { kind: AliasKind; refresh: number
     finally { setBusy(false) }
   }
 
-  return <div className="surface">
+  return <div className="admin-view">
     <div className="toolbar"><SearchBox value={query} onChange={setQuery} label={'Search ' + kind} /></div>
-    {row && <form className="alias-editor toolbar" onSubmit={save}>
+    {row && <form id={formId} className="alias-editor" onSubmit={save}>
       <label>{row.name}<input key={row.id} aria-label={'Alias for ' + row.name} value={alias} maxLength={80} autoFocus
         onChange={event => setAlias(event.target.value)} disabled={busy} /></label>
-      <button className="primary" disabled={busy}>Save</button>
-      <button type="button" disabled={busy} onClick={() => { setRow(undefined); setError('') }}>Cancel</button>
     </form>}
     {(error || catalogue.error) && <Notice error>{error || catalogue.error}</Notice>}
     <CatalogueTable label={kind + ' labels'} columns={['BCS', 'Alias']} rows={rows}
@@ -53,7 +56,12 @@ export function AliasTable({ kind, refresh }: { kind: AliasKind; refresh: number
         <td title={item.name}>{item.name}</td>
         <td><button type="button" className="alias-link" aria-label={'Edit alias for ' + item.name} title={item.alias || undefined}
           disabled={busy} onClick={() => { setError(''); setAlias(item.alias); setRow(item) }}>
-          <span>{item.alias || 'Add alias'}</span></button></td>
+          <span className={item.alias ? undefined : 'empty-alias'}>{item.alias || '—'}</span>
+          <Pencil size={13} aria-hidden="true" /></button></td>
       </>} />
+    {row && <div className="actions">
+      <button type="button" disabled={busy} onClick={() => { setRow(undefined); setError('') }}>Cancel</button>
+      <button type="submit" className="primary" form={formId} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+    </div>}
   </div>
 }

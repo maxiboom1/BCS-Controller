@@ -116,9 +116,9 @@ function App() {
     }
     return () => { active = false; clearTimeout(timeout); events.close(); setTransport(false) }
   }, [state?.user.id, streamGeneration])
-  const applyRoute = useCallback((route: Route, previous?: string) => {
+  const applyRoute = useCallback((route: Route, previous: string | undefined, connectedAt: number) => {
     setState(state => {
-      if (!state) return state
+      if (state?.router.state !== 'live' || state.router.connectedAt !== connectedAt) return state
       const current = state.routes.find(item => item.destinationId === route.destinationId)
       if (current && current.revision !== previous && current.revision !== route.revision) return state
       return { ...state, routes: [...state.routes.filter(item => item.destinationId !== route.destinationId), route] }
@@ -155,8 +155,9 @@ function App() {
         <span className="username" title={state.user.username}>{state.user.username}</span>
         <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={signOut}><LogOut size={18} /></button></div>
     </header>
-    {state.router.adminDisconnected && <div className="disconnect-banner" role="alert">Server Disconnected</div>}
-    {isAdmin ? <>{error && <Notice error>{error}</Notice>}<Admin status={status} revision={revision} currentUserId={state.user.id} /></>
+    {!isAdmin && state.router.lastError && state.router.state !== 'live' &&
+      <div className="disconnect-banner" role="alert">Server Disconnected</div>}
+    {isAdmin ? <Admin status={status} revision={revision} currentUserId={state.user.id} appError={error} />
       : <Operator panel={panel} state={state} status={status} error={error} update={applyRoute} />}
   </div>
 }

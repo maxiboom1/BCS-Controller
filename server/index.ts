@@ -48,7 +48,7 @@ try {
   db.recoverTakes()
   log('Loaded database · OK')
   log(`App ready · Admin ${url}/admin · Operator ${url}/`)
-  if (config.mode !== 'simulator') router.enable(true)
+  router.enable(true)
 } catch (error) {
   await app.close()
   log(`Startup failed · ${(error as Error).message}`, 'ERROR')

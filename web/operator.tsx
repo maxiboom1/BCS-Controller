@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { BoundItem, PanelView, Route, RouterStatus, Snapshot, TakeResult } from '../shared/model.ts'
 import { api, newActionId } from './api.ts'
@@ -6,14 +6,27 @@ import { StatusBadge } from './components.tsx'
 import { DestinationGrid } from './destinationGrid.tsx'
 import { videoSourceId } from './routeLevels.ts'
 
-type UpdateRoute = (route: Route, previous?: string) => void
+type UpdateRoute = (route: Route, previous: string | undefined, connectedAt: number) => void
 type Staged = { source: BoundItem; revision: string }
-type Feedback = { message: string; error?: boolean; success?: boolean }
+type Feedback = { message: string; error?: boolean; success?: boolean; uncertain?: boolean }
 type OperatorContext = { state: Snapshot; status: RouterStatus; error: string; update: UpdateRoute }
 
 export function Operator({ panel, ...context }: OperatorContext & { panel?: PanelView }) {
+  const [holds, setHolds] = useState(new Map<string, number>())
+  const [taking, setTaking] = useState(false)
+
+  function setVerification(id: string, connectedAt: number, required: boolean) {
+    setHolds(previous => {
+      const next = new Map(previous)
+      if (required && (next.get(id) ?? 0) <= connectedAt) next.set(id, connectedAt)
+      else if (!required && next.get(id) === connectedAt) next.delete(id)
+      return next
+    })
+  }
+
   return <main id="main" className="operator">
-    {panel ? <RoutingPanel key={panel.id + ':' + panel.version} panel={panel} {...context} />
+    {panel ? <RoutingPanel key={panel.id + ':' + panel.version} panel={panel} holds={holds}
+      setVerification={setVerification} taking={taking} setTaking={setTaking} {...context} />
       : <><p className="empty-operator">No panels assigned.</p>
         <OperatorStatus status={context.status} feedback={context.error ? { message: context.error, error: true } : undefined} /></>}
   </main>
@@ -36,36 +49,27 @@ function OperatorStatus({ status, destination, summary, warning, feedback }: {
   </footer>
 }
 
-function RoutingPanel({ panel, state, status, error, update }: OperatorContext & { panel: PanelView }) {
+function RoutingPanel({ panel, state, status, error, update, holds, setVerification, taking, setTaking }: OperatorContext & {
+  panel: PanelView; holds: ReadonlyMap<string, number>
+  setVerification: (id: string, connectedAt: number, required: boolean) => void
+  taking: boolean; setTaking: (taking: boolean) => void
+}) {
   const [destinationId, setDestinationId] = useState('')
   const [staged, setStaged] = useState<Staged>()
-  const [fresh, setFresh] = useState('')
-  const [refresh, setRefresh] = useState(0)
-  const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>()
+  const verification = useRef<AbortController>(null)
   const destination = panel.destinations.find(item => item.id === destinationId)
-  const online = status.state === 'live'
-  const routes = useMemo(() => new Map(online ? state.routes.map(route => [route.destinationId, route]) : []), [online, state.routes])
+  const connectedAt = status.state === 'live' ? status.connectedAt : null
+  const online = connectedAt !== null
+  const needsVerification = online && holds.get(destinationId) === connectedAt
+  const routes = useMemo(() => {
+    const available = connectedAt === null ? [] : state.routes.filter(route => holds.get(route.destinationId) !== connectedAt)
+    return new Map(available.map(route => [route.destinationId, route]))
+  }, [connectedAt, holds, state.routes])
   const route = routes.get(destinationId)
-  const readKey = online && destination?.valid ? destinationId + ':' + status.connectedAt + ':' + refresh : ''
-  useEffect(() => {
-    if (!readKey) { setFresh(''); setStaged(undefined); return }
-    const controller = new AbortController()
-    setFresh('')
-    setStaged(undefined)
-    setFeedback(undefined)
-    api<Route>('/panels/' + panel.id + '/destinations/' + destinationId, 'GET', undefined, controller.signal)
-      .then(value => {
-        if (!controller.signal.aborted) {
-          update(value, route?.revision)
-          setFresh(readKey)
-        }
-      }).catch((error: Error) => {
-        if (!controller.signal.aborted) setFeedback({ message: error.message, error: true })
-      })
-    return () => controller.abort()
-    // Delta events update the existing view without requesting another targeted read.
-  }, [readKey, panel.id, destinationId, update])
+  useEffect(() => { if (!online) setStaged(undefined) }, [online])
+  useEffect(() => () => verification.current?.abort(), [])
 
   const points = panel.levels.map(level => route?.levels[level.id])
   const sources = new Set(points.flatMap(point => point?.sourceId ? [point.sourceId] : []))
@@ -73,50 +77,53 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
   const chopping = points.some(point => point?.chopping)
   const sourceId = resolved && sources.size === 1 && !chopping ? [...sources][0] : undefined
   const inPanel = panel.sources.find(source => source.id === sourceId && source.valid)
-  const hasFresh = !!readKey && fresh === readKey
-  const confirmedVideo = hasFresh && route ? videoSourceId(state.levels ?? [], route) : undefined
+  const hasStatus = Boolean(destination?.valid && route)
+  const confirmedVideo = hasStatus && route ? videoSourceId(state.levels ?? [], route) : undefined
   const stageChanged = !!staged && staged.revision !== route?.revision
   const protectedLevels = chopping || points.some(point => point?.protected)
-  const canRoute = Boolean(hasFresh && route && resolved && !protectedLevels &&
-    status.writes && (panel.allLevels || status.selectedLevels) && !busy)
-  const readbackWarning = !online || !destination?.valid || !panel.validLevels ||
-    (hasFresh ? !resolved && sources.size <= 1 && !chopping : feedback?.error)
+  const canRoute = Boolean(hasStatus && resolved && !protectedLevels &&
+    status.writes && (panel.allLevels || status.selectedLevels) && !taking && !checking)
+  const readbackWarning = !hasStatus || !panel.validLevels || (!resolved && sources.size <= 1 && !chopping)
 
   let summary = 'Offline or stale'
   if (online && destination) {
     if (!destination.valid || !panel.validLevels) summary = 'Catalogue binding requires review'
-    else if (!hasFresh) summary = feedback?.error ? 'Status unavailable' : 'Reading destination…'
+    else if (checking) summary = 'Verifying destination…'
+    else if (needsVerification) summary = 'Verification required'
+    else if (!hasStatus) summary = 'Status unavailable'
     else if (sources.size > 1 || chopping) summary = 'Mixed'
     else if (!resolved) summary = 'No crosspoint on one or more levels'
     else if (!inPanel) summary = 'Routed from ' + (route?.sourceLabels[sourceId ?? ''] ?? sourceId ?? 'Unknown') + ' · outside panel'
     else summary = 'Routed from ' + inPanel.label
   }
 
-  let action = feedback
+  let action = feedback?.uncertain && online && !needsVerification ? undefined : feedback
   if (error) action = { message: error, error: true }
-  else if (busy) action = { message: 'Verifying TAKE…' }
+  else if (taking) action = { message: 'Verifying TAKE…' }
   else if (stageChanged) action = { message: 'Routing changed. Select a source again.', error: true }
-  else if (!action && hasFresh && protectedLevels) action = { message: 'Panel levels are protected or chopping.', error: true }
-  else if (!action && hasFresh && !status.writes) action = { message: 'Read-only router', error: true }
-  else if (!action && hasFresh && !panel.allLevels && !status.selectedLevels) action = { message: 'Selected-level routing is disabled.', error: true }
+  else if (!action && !checking && needsVerification) action = { message: 'Select the destination again to verify routing.', error: true }
+  else if (!action && hasStatus && protectedLevels) action = { message: 'Panel levels are protected or chopping.', error: true }
+  else if (!action && hasStatus && !status.writes) action = { message: 'Read-only router', error: true }
+  else if (!action && hasStatus && !panel.allLevels && !status.selectedLevels) action = { message: 'Selected-level routing is disabled.', error: true }
   else if (!action && staged) action = { message: 'Staged · ' + staged.source.label }
 
   async function take(source: BoundItem, revision: string) {
-    if (!canRoute || !source.valid || !destination?.valid) return
-    setBusy(true)
+    if (!canRoute || !source.valid || !destination?.valid || connectedAt === null) return
+    setTaking(true)
     setStaged(undefined)
     setFeedback(undefined)
     try {
       const result = await api<TakeResult>('/panels/' + panel.id + '/takes', 'POST', {
         actionId: newActionId(), sourceId: source.id, destinationId, revision, panelVersion: panel.version,
       })
-      if (result.route) update(result.route, revision)
-      if (result.outcome === 'uncertain') setFresh('')
-      setFeedback(result.outcome === 'confirmed' ? { message: 'TAKE confirmed', success: true } : { message: result.message, error: true })
+      if (result.route) update(result.route, revision, connectedAt)
+      if (result.outcome === 'uncertain') setVerification(destinationId, connectedAt, true)
+      setFeedback(result.outcome === 'confirmed' ? { message: 'TAKE confirmed', success: true }
+        : { message: result.message, error: true, uncertain: result.outcome === 'uncertain' })
     } catch {
-      setFresh('')
-      setFeedback({ message: 'TAKE request could not be confirmed. Check the destination before retrying.', error: true })
-    } finally { setBusy(false) }
+      setVerification(destinationId, connectedAt, true)
+      setFeedback({ message: 'TAKE request could not be confirmed. Check the destination before retrying.', error: true, uncertain: true })
+    } finally { setTaking(false) }
   }
 
   function selectSource(source: BoundItem) {
@@ -126,10 +133,27 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
     else void take(source, route.revision)
   }
 
-  function selectDestination(id: string) {
-    if (id === destinationId) setRefresh(value => value + 1)
-    else setDestinationId(id)
+  async function selectDestination(id: string) {
+    setDestinationId(id)
+    setStaged(undefined)
     setFeedback(undefined)
+    if (connectedAt === null || holds.get(id) !== connectedAt || !panel.destinations.some(item => item.id === id && item.valid)) return
+
+    const controller = new AbortController()
+    verification.current = controller
+    const previous = state.routes.find(item => item.destinationId === id)?.revision
+    setChecking(true)
+    try {
+      const checked = await api<Route>('/panels/' + panel.id + '/destinations/' + id, 'GET', undefined, controller.signal)
+      if (controller.signal.aborted) return
+      update(checked, previous, connectedAt)
+      setVerification(id, connectedAt, false)
+    } catch (err) {
+      if (!controller.signal.aborted) setFeedback({ message: (err as Error).message, error: true })
+    } finally {
+      verification.current = null
+      if (!controller.signal.aborted) setChecking(false)
+    }
   }
 
   const style = { '--columns': panel.columns } as CSSProperties
@@ -145,8 +169,8 @@ function RoutingPanel({ panel, state, status, error, update }: OperatorContext &
           disabled={!source.valid || !canRoute} onClick={() => selectSource(source)}><span>{source.label}</span></button>
       })}</div>
     </section>
-    <DestinationGrid items={panel.destinations} routes={routes} levels={state.levels ?? []} selection={destinationId} busy={busy}
-      style={style} select={selectDestination} />
+    <DestinationGrid items={panel.destinations} routes={routes} levels={state.levels ?? []} selection={destinationId} busy={taking || checking}
+      style={style} select={id => void selectDestination(id)} />
     {panel.useTake && <div className="take-row">
       <button className="take-button" type="button" disabled={!canRoute || !staged || stageChanged}
         onClick={() => { if (staged) void take(staged.source, staged.revision) }}>TAKE</button>
