@@ -90,6 +90,7 @@ label:not(.check, .search) { display: grid; gap: 0.4rem; font-size: 0.89rem; fon
 .admin-body, .table-scroll, .sidebar nav, .assignment-picker { scrollbar-width: thin; scrollbar-color: #a6b1c359 transparent; }
 .toolbar, .actions { display: flex; flex: none; align-items: center; gap: 0.65rem; }
 .actions { justify-content: flex-end; }
+.settings-actions { flex-wrap: wrap; }
 .admin-main h2, .admin-main .primary { font-weight: 600; }
 .admin-main label:not(.check, .search) { font-weight: 400; }
 .admin-main .pill { font-weight: 500; }

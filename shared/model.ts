@@ -37,7 +37,7 @@ export type RouterStatus = {
 }
 export const MIN_PASSWORD_LENGTH = 6
 export type ControllerSettings = {
-  bcsHost: string; bcsPort: number; pollIntervalMs: number; webPort: number; idleMinutes: number
+  bcsHost: string; bcsPort: number; pollIntervalMs: number; catalogueCheckMinutes: number; webPort: number; idleMinutes: number
 }
 export type SettingsView = {
   settings: ControllerSettings; activeUrl: string; activePort: number; version: string

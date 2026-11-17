@@ -2,6 +2,10 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.06 · 2026-11-17
+
+- Made the BCS catalogue check interval configurable in Admin Settings, with a 30-minute default. Added **Refresh catalogue now** to check BCS on demand and re-sync when the catalogue changes.
+
 ## 1.0.05 · 2026-11-16
 
 - Added a live GVG traffic console in Admin Settings. It shows timestamped frames from the controller's BCS connection with All, TX, and RX filters.

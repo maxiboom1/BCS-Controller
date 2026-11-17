@@ -9,10 +9,11 @@ import { DEFAULT_SETTINGS, endpointAddress } from './settings.ts'
 export type Endpoint = { host: string; port: number; mode: RouterStatus['mode']; selectedLevels: boolean }
 type StatusRecord = { revision: string; levels: Crosspoints }
 type Change = { destinationId?: string; catalogue?: boolean }
-type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs'>
+type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs' | 'catalogueCheckMinutes'>
 export type Link = { gvg: Gvg; read: (id: string) => Promise<StatusRecord>; ensure: () => void }
 
 const RECONNECT_DELAY_MS = 5000
+const CATALOGUE_CHANGED = 'BCS catalogue changed, resynchronizing'
 
 export class Router {
   catalogue: Catalogue = emptyCatalogue()
@@ -27,10 +28,15 @@ export class Router {
   private runner: Promise<void> = Promise.resolve()
   private reconfiguring = false
   private pollIntervalMs: number
+  private catalogueCheckMinutes: number
+  private catalogueCheckedAt = 0
+  private catalogueRefresh?: Promise<boolean>
 
-  constructor(endpoint: Endpoint, storedCatalogue?: Catalogue, pollIntervalMs = DEFAULT_SETTINGS.pollIntervalMs) {
+  constructor(endpoint: Endpoint, storedCatalogue?: Catalogue, pollIntervalMs = DEFAULT_SETTINGS.pollIntervalMs,
+    catalogueCheckMinutes = DEFAULT_SETTINGS.catalogueCheckMinutes) {
     this.endpoint = endpoint
     this.pollIntervalMs = pollIntervalMs
+    this.catalogueCheckMinutes = catalogueCheckMinutes
     if (storedCatalogue) this.catalogue = storedCatalogue
     this.status = {
       state: 'offline', enabled: false, connectedAt: null, lastError: null,
@@ -41,6 +47,7 @@ export class Router {
 
   async configure(settings: RouterSettings, storedCatalogue?: Catalogue) {
     this.pollIntervalMs = settings.pollIntervalMs
+    this.catalogueCheckMinutes = settings.catalogueCheckMinutes
     if (this.endpoint.mode === 'simulator' || (settings.bcsHost === this.endpoint.host && settings.bcsPort === this.endpoint.port)) return
 
     this.reconfiguring = true
@@ -105,6 +112,27 @@ export class Router {
     return record
   }
 
+  private async checkCatalogue(gvg: Gvg) {
+    const fresh = await gvg.catalogues()
+    this.catalogueCheckedAt = performance.now()
+    return JSON.stringify(fresh) !== JSON.stringify(this.catalogue)
+  }
+
+  refreshCatalogue() {
+    this.catalogueRefresh ??= this.withLink(async ({ gvg, ensure }) => {
+      try {
+        const changed = await this.checkCatalogue(gvg)
+        ensure()
+        if (changed) gvg.close(new Error(CATALOGUE_CHANGED))
+        return changed
+      } catch (error) {
+        gvg.close(error as Error)
+        throw error
+      }
+    }).finally(() => { this.catalogueRefresh = undefined })
+    return this.catalogueRefresh
+  }
+
   private async run(controller: AbortController) {
     const signal = controller.signal
     while (!signal.aborted) {
@@ -135,9 +163,9 @@ export class Router {
         this.catalogue = catalogue
         this.routes = new Map([...routes].map(([id, points]) =>
           [id, { levels: this.normalize(points), revision: randomUUID() }]))
+        this.catalogueCheckedAt = performance.now()
         this.set({ state: 'live', lastError: null }, true)
         let healthDue = Date.now() + 10_000
-        let refreshDue = Date.now() + 300_000
         while (!signal.aborted && !active.closed) {
           const started = Date.now()
           await this.serial(async () => {
@@ -147,10 +175,8 @@ export class Router {
               await active.health()
               healthDue = Date.now() + 10_000
             }
-            if (Date.now() >= refreshDue) {
-              const fresh = await active.catalogues()
-              if (JSON.stringify(fresh) !== JSON.stringify(this.catalogue)) throw new Error('BCS catalogue changed, resynchronizing')
-              refreshDue = Date.now() + 300_000
+            if (performance.now() - this.catalogueCheckedAt >= this.catalogueCheckMinutes * 60_000) {
+              if (await this.checkCatalogue(active)) throw new Error(CATALOGUE_CHANGED)
             }
             const changes = await active.poll(this.catalogue)
             pollSignal.throwIfAborted()

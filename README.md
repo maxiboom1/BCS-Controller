@@ -20,6 +20,7 @@ The initial defaults are BCS `10.10.10.156:12345`, a `1000 ms` delta request int
 
 - The live database is `data\live\controller.sqlite`. To create the first admin in a fresh database, run `pnpm admin live-admin`. New and reset passwords require at least six characters.
 - **Settings** controls the BCS address, GVG port, request interval, web port, and idle logout. A BCS endpoint change takes effect through a fresh connection. A web port change takes effect after restarting the console.
+- **Catalogue check interval** defaults to 30 minutes. It takes effect when saved and is measured from the last successful check. **Refresh catalogue now** checks BCS on the existing connection. A changed catalogue triggers a reconnect and a verified snapshot before the new names appear in Labels.
 - Open **Settings → GVG traffic** to watch live frames on the controller's BCS connection. Choose **TX** for requests and commands sent to BCS, **RX** for frames received, or **All** for both. Turn off **Follow live** to inspect earlier messages. The viewer starts when opened and retains the latest 8,000 frames in the browser.
 - If a saved port prevents startup, set `$env:WEB_PORT = '8443'` in PowerShell before running the launcher. The override lasts for that shell. After correcting the saved port, remove the override with `Remove-Item Env:WEB_PORT`.
 - After a detected BCS connection failure, the console retries in five seconds and synchronizes before enabling routing. Operator shows **Server Disconnected** until synchronization succeeds. The Admin footer shows the active BCS address, uptime while synchronized, and the app version.
@@ -41,4 +42,4 @@ TAKE verifies the current route at BCS before sending a switch and checks the re
 
 Run `pnpm backup <path-to-backup.sqlite>` to create a consistent database backup. Use the same `BCS_DATA_DIR` as the running app if it is customized. Stop the console before restoring a backup.
 
-Every production change set bumps the version in `package.json`, updates affected documentation, and adds release notes to [CHANGELOG.md](CHANGELOG.md). The console and Admin footer show the patch number with at least two digits. Tag each verified release locally with its displayed version, such as `v1.0.05`.
+Every production change set bumps the version in `package.json`, updates affected documentation, and adds release notes to [CHANGELOG.md](CHANGELOG.md). The console and Admin footer show the patch number with at least two digits. Tag each verified release locally with its displayed version, such as `v1.0.06`.

@@ -297,7 +297,8 @@ export async function createApp(options: AppOptions) {
   app.get('/api/admin/settings', async request => { admin(request); return settingsView() })
   app.put('/api/admin/settings', async request => {
     const actor = admin(request)
-    const next = settingsInput.parse(request.body)
+    const parsed = settingsInput.parse(request.body)
+    const next = { ...parsed, catalogueCheckMinutes: parsed.catalogueCheckMinutes ?? settings.catalogueCheckMinutes }
     if (savingSettings) throw new HttpError(409, 'Settings are already being saved.')
     savingSettings = true
     try {
@@ -306,9 +307,19 @@ export async function createApp(options: AppOptions) {
       const catalogue = db.catalogue('live:' + endpointAddress(next.bcsHost, next.bcsPort))
       await router.configure(next, catalogue)
       publish()
-      log(`Settings saved · by ${actor.username} · ${endpointAddress(next.bcsHost, next.bcsPort)} · poll ${next.pollIntervalMs} ms · web port ${next.webPort} · idle timeout ${next.idleMinutes || 'off'}`)
+      log(`Settings saved · by ${actor.username} · ${endpointAddress(next.bcsHost, next.bcsPort)} · poll ${next.pollIntervalMs} ms · catalogue ${next.catalogueCheckMinutes} min · web port ${next.webPort} · idle timeout ${next.idleMinutes || 'off'}`)
       return settingsView()
     } finally { savingSettings = false }
+  })
+  app.post('/api/admin/catalogue/refresh', async request => {
+    const actor = admin(request)
+    try {
+      const changed = await router.refreshCatalogue()
+      log(`Catalogue checked · by ${actor.username} · ${changed ? 'changed, resynchronizing' : 'no changes'}`)
+      return { changed }
+    } catch (error) {
+      throw new HttpError(503, (error as Error).message)
+    }
   })
   for (const method of ['POST', 'PUT'] as const) {
     const path = '/api/admin/users' + (method === 'PUT' ? '/:id' : '')

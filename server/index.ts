@@ -33,7 +33,7 @@ const catalogueKey = simulator ? 'simulator' : 'live:' + endpointAddress(setting
 const router = new Router({
   host: simulator?.host ?? settings.bcsHost, port: simulator?.port ?? settings.bcsPort,
   mode: config.mode, selectedLevels: config.selectedLevels,
-}, db.catalogue(catalogueKey), settings.pollIntervalMs)
+}, db.catalogue(catalogueKey), settings.pollIntervalMs, settings.catalogueCheckMinutes)
 const url = origin ?? `http://${endpointAddress(config.host, port)}`
 const app = await createApp({
   db, router, catalogueKey, tls, log: true, settings, activePort: port, activeUrl: url,

@@ -62,7 +62,7 @@ export class Gvg {
   }
 
   get closed() { return this.socket.destroyed }
-  close() { this.socket.destroy() }
+  close(error?: Error) { this.socket.destroy(error) }
 
   private report(direction: ProtocolDirection, packet: Buffer) {
     try { this.observe?.(direction, packet) }
