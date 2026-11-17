@@ -14,6 +14,7 @@ import { validBindings, viewAdminPanel, viewPanel, viewRoute } from './views.ts'
 import { takeService } from './takes.ts'
 import { consoleLogger, release } from './log.ts'
 import { Presence } from './presence.ts'
+import { monitorHistory, monitorQuery } from './monitor.ts'
 import { protocolStream } from './protocolStream.ts'
 import { DEFAULT_SETTINGS, endpointAddress, settingsInput } from './settings.ts'
 
@@ -47,6 +48,7 @@ export async function createApp(options: AppOptions) {
   const { db, router } = options
   const app = Fastify({ bodyLimit: 256 * 1024, ...(options.tls ? { https: options.tls } : {}) })
   const log = consoleLogger(Boolean(options.log))
+  const history = monitorHistory(db)
   let settings = options.settings ?? db.controllerSettings() ?? DEFAULT_SETTINGS
   const activePort = options.activePort ?? settings.webPort
   let savingSettings = false
@@ -106,6 +108,17 @@ export async function createApp(options: AppOptions) {
       client.queue.push(message)
       client.bytes += Buffer.byteLength(message)
       if (client.bytes > 4 * 1024 * 1024) stream.destroy()
+    }
+  }
+  router.observeRoutes = observations => {
+    try {
+      const head = history.record(observations, router.catalogue)
+      if (!head) return
+      for (const [stream, { session }] of streams) {
+        if (accountFor(session)?.role === 'admin') event(stream, 'monitor', head)
+      }
+    } catch (error) {
+      log('Could not record Monitor history · ' + (error as Error).message, 'ERROR')
     }
   }
   function publish(destinationId?: string) {
@@ -198,7 +211,7 @@ export async function createApp(options: AppOptions) {
     return { ok: true }
   })
   app.get('/api/events', async (request, reply) => {
-    user(request)
+    const account = user(request)
     const session = token(request)
     const stream = reply.raw
     const disconnect = presence.connect(session, request.ip, request.headers['user-agent'] ?? '')
@@ -221,6 +234,7 @@ export async function createApp(options: AppOptions) {
       else { event(stream, 'expired', null); stream.end() }
     }, 10_000)
     event(stream, 'snapshot', snapshot(session))
+    if (account.role === 'admin') event(stream, 'monitor', history.head())
   })
   app.get('/api/panels/:id/destinations/:destinationId', async request => {
     const params = z.object({ id: z.uuid(), destinationId: z.string().regex(/^[0-9A-F]{4}$/) }).parse(request.params)
@@ -240,7 +254,7 @@ export async function createApp(options: AppOptions) {
   })
   app.post('/api/panels/:id/takes', async request => {
     const { id } = uuidParam.parse(request.params)
-    return executeTake(user(request).id, id, takeInput.parse(request.body), () => panelFor(request, id))
+    return executeTake(user(request).id, id, takeInput.parse(request.body), () => panelFor(request, id), request.ip)
   })
 
   app.get('/api/admin', async request => {
@@ -251,6 +265,10 @@ export async function createApp(options: AppOptions) {
   app.get('/api/admin/protocol-events', { exposeHeadRoute: false }, async (request, reply) => {
     admin(request)
     protocol.connect(reply, token(request))
+  })
+  app.get('/api/admin/monitor', async request => {
+    admin(request)
+    return history.page(monitorQuery.parse(request.query))
   })
   app.delete('/api/admin/users/:id', async request => {
     const actor = admin(request)

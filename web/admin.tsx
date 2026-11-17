@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Grid2X2, Monitor, Plus, Settings, Tags, Users } from 'lucide-react'
+import { Activity, Grid2X2, Monitor, Plus, Settings, Tags, Users } from 'lucide-react'
 import type { AdminPanelView, RouterStatus, User } from '../shared/model.ts'
 import { api, ApiError } from './api.ts'
 import { elapsedClock, Notice, SearchBox } from './components.tsx'
 import { PanelEditor, UserEditor } from './adminEditors.tsx'
 import { LabelsTab } from './labels.tsx'
+import { MonitorTab } from './monitorTab.tsx'
 import { SettingsTab } from './settings.tsx'
 import { SessionStatus } from './sessionStatus.tsx'
 
 const tabs = [
-  ['Users', Users], ['Panels', Grid2X2], ['Labels', Tags], ['Clients', Monitor], ['Settings', Settings],
+  ['Users', Users], ['Panels', Grid2X2], ['Labels', Tags], ['Clients', Monitor], ['Monitor', Activity], ['Settings', Settings],
 ] as const
 type Tab = typeof tabs[number][0]
 type AdminData = { users: User[]; panels: AdminPanelView[]; version: string }
@@ -31,8 +32,8 @@ function AdminFooter({ status, version }: { status: RouterStatus; version?: stri
   </footer>
 }
 
-export function Admin({ status, revision, currentUserId, appError }: {
-  status: RouterStatus; revision: number; currentUserId: string; appError: string
+export function Admin({ status, revision, currentUserId, appError, monitorHead }: {
+  status: RouterStatus; revision: number; currentUserId: string; appError: string; monitorHead: number
 }) {
   const [tab, setTab] = useState<Tab>('Users')
   const [data, setData] = useState<AdminData>()
@@ -98,6 +99,7 @@ export function Admin({ status, revision, currentUserId, appError }: {
       {(appError || error || loadError) && <Notice error>{appError || error || loadError}</Notice>}
       {tab === 'Settings' && <SettingsTab />}
       {tab === 'Clients' && <SessionStatus />}
+      {tab === 'Monitor' && <MonitorTab head={monitorHead} revision={revision} />}
       {tab === 'Labels' && <LabelsTab refresh={revision} />}
       {data && tab === 'Users' && (editorVisible
         ? <UserEditor key={editing} user={user} panels={data.panels} done={save} cancel={closeEditor} missing={missing} />

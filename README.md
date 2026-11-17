@@ -38,8 +38,14 @@ Select a destination to show its cached status and highlight the routed video so
 
 TAKE verifies the current route at BCS before sending a switch and checks the requested levels afterward. If another switch changed the route, review the updated status and try again. After an uncertain result, select the destination again to verify it. A successful BCS resync also restores routing.
 
+## Monitor routing history
+
+Open **Admin → Monitor** for the latest 100 entries. Search the stored history by user, IP, event, panel, destination, source, or BCS name. **Today** and **Yesterday** use the browser's timezone. **Last hours** accepts 1–1000 hours. The newest page updates live. **Latest** returns to it from older pages.
+
+History starts with 1.0.07. The app records observed source changes. Rows from the app include the authenticated user, client IP, and panel when a post-TAKE readback matches the requested source on a changed level. **External** rows show when the app observed each change. External salvos appear as the resulting **Route** rows. Changes during outages or overwritten between GVG reads may be absent from the history.
+
 ## Backup and releases
 
 Run `pnpm backup <path-to-backup.sqlite>` to create a consistent database backup. Use the same `BCS_DATA_DIR` as the running app if it is customized. Stop the console before restoring a backup.
 
-Every production change set bumps the version in `package.json`, updates affected documentation, and adds release notes to [CHANGELOG.md](CHANGELOG.md). The console and Admin footer show the patch number with at least two digits. Tag each verified release locally with its displayed version, such as `v1.0.06`.
+Every production change set bumps the version in `package.json`, updates affected documentation, and adds release notes to [CHANGELOG.md](CHANGELOG.md). The console and Admin footer show the patch number with at least two digits. Tag each verified release locally with its displayed version, such as `v1.0.07`.

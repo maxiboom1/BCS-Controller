@@ -42,6 +42,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [transport, setTransport] = useState(false)
   const [revision, setRevision] = useState(0)
+  const [monitorHead, setMonitorHead] = useState(0)
   const [streamGeneration, restartStream] = useState(0)
   const [error, setError] = useState('')
   const [panelId, setPanelId] = useState('')
@@ -106,6 +107,10 @@ function App() {
       const route = JSON.parse(event.data) as Route
       setState(previous => previous && { ...previous, routes: [...previous.routes.filter(item => item.destinationId !== route.destinationId), route] })
     })
+    events.addEventListener('monitor', event => {
+      seen()
+      setMonitorHead(JSON.parse(event.data) as number)
+    })
     events.addEventListener('heartbeat', seen)
     events.addEventListener('expired', () => { setState(undefined); setTransport(false); events.close() })
     events.onerror = () => {
@@ -157,7 +162,7 @@ function App() {
     </header>
     {!isAdmin && state.router.lastError && state.router.state !== 'live' &&
       <div className="disconnect-banner" role="alert">Server Disconnected</div>}
-    {isAdmin ? <Admin status={status} revision={revision} currentUserId={state.user.id} appError={error} />
+    {isAdmin ? <Admin status={status} revision={revision} currentUserId={state.user.id} appError={error} monitorHead={monitorHead} />
       : <Operator panel={panel} state={state} status={status} error={error} update={applyRoute} />}
   </div>
 }

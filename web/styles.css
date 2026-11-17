@@ -91,6 +91,12 @@ label:not(.check, .search) { display: grid; gap: 0.4rem; font-size: 0.89rem; fon
 .toolbar, .actions { display: flex; flex: none; align-items: center; gap: 0.65rem; }
 .actions { justify-content: flex-end; }
 .settings-actions { flex-wrap: wrap; }
+.monitor-toolbar, .monitor-filters, .monitor-actions { flex-wrap: wrap; }
+.monitor-filters, .monitor-filters .monitor-hours { display: flex; align-items: center; gap: 0.4rem; }
+.monitor-hours input:not([type=checkbox]) { width: 5rem; }
+.monitor-filters button[aria-pressed="true"] { background: #243953; border-color: #406083; }
+.monitor-table { min-width: 45rem; }
+.monitor-table time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .admin-main h2, .admin-main .primary { font-weight: 600; }
 .admin-main label:not(.check, .search) { font-weight: 400; }
 .admin-main .pill { font-weight: 500; }

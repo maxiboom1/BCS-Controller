@@ -44,6 +44,11 @@ export type SettingsView = {
 }
 export type ProtocolDirection = 'TX' | 'RX'
 export type ProtocolPacket = { id: number; at: number; direction: ProtocolDirection; wire: string }
+export type MonitorRow = {
+  id: number; at: number; user: string; userIp: string | null; event: 'Route' | 'Salvo'; panelName: string | null
+  destination: string; source: string
+}
+export type MonitorPage = { rows: MonitorRow[]; nextCursor: string | null; head: number }
 export type OnlineSession = {
   id: string; username: string; ip: string; browser: string; lastActivityAt: number; current: boolean
 }

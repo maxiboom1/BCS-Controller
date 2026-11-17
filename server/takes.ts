@@ -1,7 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises'
 import type { Panel, TakeInput, TakeResult } from '../shared/model.ts'
 import type { Store } from './db.ts'
-import type { Router } from './router.ts'
+import type { Router, TakeObservation } from './router.ts'
 import { validBindings, viewRoute } from './views.ts'
 import { levelMask } from './wire.ts'
 
@@ -9,7 +9,7 @@ type TakeAudit = { username: string; panel: string; source: string; destination:
 
 export function takeService(db: Store, router: Router, audit?: (event: TakeAudit) => void) {
   const running = new Map<string, Promise<TakeResult>>()
-  return async (userId: string, panelId: string, input: TakeInput, authorized: () => Panel): Promise<TakeResult> => {
+  return async (userId: string, panelId: string, input: TakeInput, authorized: () => Panel, ip: string | null = null): Promise<TakeResult> => {
     const requestedPanel = authorized()
     const key = userId + ':' + input.actionId
     const fingerprint = JSON.stringify([panelId, input])
@@ -62,9 +62,12 @@ export function takeService(db: Store, router: Router, audit?: (event: TakeAudit
       db.attempted(userId, input.actionId)
       attempted = true
       await link.gvg.take(destination.name, source.name, all ? undefined : levelMask(levels.map(level => level.id)))
+      const observation: TakeObservation = {
+        actionKey: key, username, ip, panelName: requestedPanel.name, sourceId: source.id, levelIds: new Set(levels.map(level => level.id)),
+      }
       for (let attempt = 0; attempt < 4; attempt++) {
         await wait(200)
-        const after = await link.read(input.destinationId)
+        const after = await link.read(input.destinationId, observation)
         if (matches(after.levels)) return { outcome: 'confirmed', message: 'TAKE verified on every requested level.', route: route() } as const
       }
       return { outcome: 'mismatch', message: 'Readback did not match every requested level.', route: route() } as const

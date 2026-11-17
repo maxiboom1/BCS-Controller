@@ -10,7 +10,13 @@ export type Endpoint = { host: string; port: number; mode: RouterStatus['mode'];
 type StatusRecord = { revision: string; levels: Crosspoints }
 type Change = { destinationId?: string; catalogue?: boolean }
 type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs' | 'catalogueCheckMinutes'>
-export type Link = { gvg: Gvg; read: (id: string) => Promise<StatusRecord>; ensure: () => void }
+export type TakeObservation = {
+  actionKey: string; username: string; ip: string | null; panelName: string; sourceId: string; levelIds: ReadonlySet<string>
+}
+export type RouteObservation = {
+  at: number; destinationId: string; levels: { id: string; sourceId: string | null; chopping: boolean }[]; take?: TakeObservation
+}
+export type Link = { gvg: Gvg; read: (id: string, take?: TakeObservation) => Promise<StatusRecord>; ensure: () => void }
 
 const RECONNECT_DELAY_MS = 5000
 const CATALOGUE_CHANGED = 'BCS catalogue changed, resynchronizing'
@@ -20,6 +26,7 @@ export class Router {
   routes = new Map<string, StatusRecord>()
   status: RouterStatus
   changed = (_change: Change) => {}
+  observeRoutes?: (observations: RouteObservation[]) => void
   observePacket?: PacketObserver
   private endpoint: Endpoint
   private controller: AbortController | null = null
@@ -102,12 +109,17 @@ export class Router {
       [id, points[id] ?? { sourceId: null, protected: false, chopping: false }]))
   }
 
-  private update(id: string, points: Crosspoints) {
+  private update(id: string, points: Crosspoints, observations: RouteObservation[], take?: TakeObservation) {
     const levels = this.normalize(points)
     const previous = this.routes.get(id)
     if (previous && JSON.stringify(previous.levels) === JSON.stringify(levels)) return previous
     const record = { levels, revision: randomUUID() }
     this.routes.set(id, record)
+    if (previous && this.observeRoutes) {
+      const changed = Object.entries(levels).filter(([id, point]) => previous.levels[id]?.sourceId !== point.sourceId)
+      if (changed.length) observations.push({ at: Date.now(), destinationId: id, take,
+        levels: changed.map(([id, { sourceId, chopping }]) => ({ id, sourceId, chopping })) })
+    }
     this.changed({ destinationId: id })
     return record
   }
@@ -180,7 +192,9 @@ export class Router {
             }
             const changes = await active.poll(this.catalogue)
             pollSignal.throwIfAborted()
-            for (const [id, points] of changes) this.update(id, points)
+            const observations: RouteObservation[] = []
+            for (const [id, points] of changes) this.update(id, points, observations)
+            if (observations.length) this.observeRoutes?.(observations)
           })
           await wait(Math.max(0, this.pollIntervalMs - (Date.now() - started)), undefined, { signal: pollSignal })
         }
@@ -206,12 +220,15 @@ export class Router {
     ensure()
     return this.serial(async () => {
       ensure()
-      const read = async (id: string) => {
+      const read = async (id: string, take?: TakeObservation) => {
         ensure()
         try {
           const points = await gvg!.read(this.catalogue, id)
           ensure()
-          return this.update(id, points)
+          const observations: RouteObservation[] = []
+          const record = this.update(id, points, observations, take)
+          if (observations.length) this.observeRoutes?.(observations)
+          return record
         } catch (error) {
           gvg!.close()
           throw error

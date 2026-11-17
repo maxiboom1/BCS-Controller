@@ -2,6 +2,11 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.07 · 2026-11-17
+
+- Added an admin-only Monitor with live routing history, search, time filters, and 100-entry pages.
+- Recorded app routes with the user, client IP, and panel. Recorded externally observed crosspoint changes with their observation time.
+
 ## 1.0.06 · 2026-11-17
 
 - Made the BCS catalogue check interval configurable in Admin Settings, with a 30-minute default. Added **Refresh catalogue now** to check BCS on demand and re-sync when the catalogue changes.
