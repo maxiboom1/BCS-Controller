@@ -39,7 +39,6 @@ export function takeService(db: Store, router: Router, audit?: (event: TakeAudit
           throw new Error('Catalogue bindings changed. Ask an admin to review this panel.')
         }
         if (!router.status.writes) throw new Error('Live routing is disabled in read-only mode.')
-        if (panel.levels && !router.status.selectedLevels) throw new Error('Selected-level routing is gated for this live service.')
         return { source, destination, levels, all: panel.levels === null }
       }
       validate()

@@ -1,14 +1,14 @@
-import { randomUUID } from 'node:crypto'
 import { setTimeout as wait } from 'node:timers/promises'
 import { emptyCatalogue } from '../shared/model.ts'
-import type { Catalogue, ControllerSettings, Crosspoints, RouterStatus } from '../shared/model.ts'
+import type { Catalogue, ControllerSettings, Crosspoints, FullSyncResult, RouterStatus } from '../shared/model.ts'
 import { Gvg } from './gvg.ts'
 import type { PacketObserver } from './gvg.ts'
+import { reconcileSnapshot, routeRecord, sourceChanges } from './routeCache.ts'
+import type { StatusRecord } from './routeCache.ts'
 import { DEFAULT_SETTINGS, endpointAddress } from './settings.ts'
 
-export type Endpoint = { host: string; port: number; mode: RouterStatus['mode']; selectedLevels: boolean }
-type StatusRecord = { revision: string; levels: Crosspoints }
-type Change = { destinationId?: string; catalogue?: boolean }
+export type Endpoint = { host: string; port: number; mode: RouterStatus['mode'] }
+type Change = { destinationId?: string; catalogue?: boolean; syncRouteIds?: ReadonlySet<string> }
 type RouterSettings = Pick<ControllerSettings, 'bcsHost' | 'bcsPort' | 'pollIntervalMs' | 'catalogueCheckMinutes'>
 export type TakeObservation = {
   actionKey: string; username: string; ip: string | null; panelName: string; sourceId: string; levelIds: ReadonlySet<string>
@@ -19,13 +19,14 @@ export type RouteObservation = {
 export type Link = { gvg: Gvg; read: (id: string, take?: TakeObservation) => Promise<StatusRecord>; ensure: () => void }
 
 const RECONNECT_DELAY_MS = 5000
-const CATALOGUE_CHANGED = 'BCS catalogue changed, resynchronizing'
+type SyncOrigin = { trigger: 'manual' | 'scheduled'; username?: string }
 
 export class Router {
   catalogue: Catalogue = emptyCatalogue()
   routes = new Map<string, StatusRecord>()
   status: RouterStatus
   changed = (_change: Change) => {}
+  observeSync?: (result: FullSyncResult, origin: SyncOrigin) => void
   observeRoutes?: (observations: RouteObservation[]) => void
   observePacket?: PacketObserver
   private endpoint: Endpoint
@@ -35,26 +36,26 @@ export class Router {
   private runner: Promise<void> = Promise.resolve()
   private reconfiguring = false
   private pollIntervalMs: number
-  private catalogueCheckMinutes: number
-  private catalogueCheckedAt = 0
-  private catalogueRefresh?: Promise<boolean>
+  private fullSyncMinutes: number
+  private syncFinishedAt = 0
+  private syncRequest?: Promise<FullSyncResult>
 
   constructor(endpoint: Endpoint, storedCatalogue?: Catalogue, pollIntervalMs = DEFAULT_SETTINGS.pollIntervalMs,
-    catalogueCheckMinutes = DEFAULT_SETTINGS.catalogueCheckMinutes) {
+    fullSyncMinutes = DEFAULT_SETTINGS.catalogueCheckMinutes) {
     this.endpoint = endpoint
     this.pollIntervalMs = pollIntervalMs
-    this.catalogueCheckMinutes = catalogueCheckMinutes
+    this.fullSyncMinutes = fullSyncMinutes
     if (storedCatalogue) this.catalogue = storedCatalogue
     this.status = {
-      state: 'offline', enabled: false, connectedAt: null, lastError: null,
+      state: 'offline', enabled: false, connectedAt: null, syncGeneration: 0, lastError: null,
       mode: endpoint.mode, endpoint: endpoint.mode === 'simulator' ? 'Local GVG simulator' : endpointAddress(endpoint.host, endpoint.port),
-      writes: endpoint.mode !== 'live-readonly', selectedLevels: endpoint.selectedLevels || endpoint.mode === 'simulator',
+      writes: endpoint.mode !== 'live-readonly',
     }
   }
 
   async configure(settings: RouterSettings, storedCatalogue?: Catalogue) {
     this.pollIntervalMs = settings.pollIntervalMs
-    this.catalogueCheckMinutes = settings.catalogueCheckMinutes
+    this.fullSyncMinutes = settings.catalogueCheckMinutes
     if (this.endpoint.mode === 'simulator' || (settings.bcsHost === this.endpoint.host && settings.bcsPort === this.endpoint.port)) return
 
     this.reconfiguring = true
@@ -93,9 +94,9 @@ export class Router {
     await this.tail
   }
 
-  private set(update: Partial<RouterStatus>, catalogue = false) {
+  private set(update: Partial<RouterStatus>, change: Change = {}) {
     this.status = { ...this.status, ...update }
-    this.changed({ catalogue })
+    this.changed(change)
   }
 
   private serial<T>(action: () => Promise<T>) {
@@ -104,45 +105,51 @@ export class Router {
     return result
   }
 
-  private normalize(points: Crosspoints): Crosspoints {
-    return Object.fromEntries(this.catalogue.levels.map(({ id }) =>
-      [id, points[id] ?? { sourceId: null, protected: false, chopping: false }]))
-  }
-
   private update(id: string, points: Crosspoints, observations: RouteObservation[], take?: TakeObservation) {
-    const levels = this.normalize(points)
     const previous = this.routes.get(id)
-    if (previous && JSON.stringify(previous.levels) === JSON.stringify(levels)) return previous
-    const record = { levels, revision: randomUUID() }
+    const record = routeRecord(points, this.catalogue, previous)
+    if (record === previous) return record
     this.routes.set(id, record)
     if (previous && this.observeRoutes) {
-      const changed = Object.entries(levels).filter(([id, point]) => previous.levels[id]?.sourceId !== point.sourceId)
-      if (changed.length) observations.push({ at: Date.now(), destinationId: id, take,
-        levels: changed.map(([id, { sourceId, chopping }]) => ({ id, sourceId, chopping })) })
+      const levels = sourceChanges(previous.levels, record.levels)
+      if (levels.length) observations.push({ at: Date.now(), destinationId: id, take, levels })
     }
     this.changed({ destinationId: id })
     return record
   }
 
-  private async checkCatalogue(gvg: Gvg) {
-    const fresh = await gvg.catalogues()
-    this.catalogueCheckedAt = performance.now()
-    return JSON.stringify(fresh) !== JSON.stringify(this.catalogue)
+  fullSyncNow(username: string) {
+    return this.requestSync({ trigger: 'manual', username })
   }
 
-  refreshCatalogue() {
-    this.catalogueRefresh ??= this.withLink(async ({ gvg, ensure }) => {
+  private requestSync(origin: SyncOrigin) {
+    if (this.syncRequest) return this.syncRequest
+    const queuedAt = performance.now()
+    this.syncRequest = this.withLink(async ({ gvg }) => {
+      const started = performance.now()
       try {
-        const changed = await this.checkCatalogue(gvg)
-        ensure()
-        if (changed) gvg.close(new Error(CATALOGUE_CHANGED))
-        return changed
+        this.set({ state: 'syncing' }, { syncRouteIds: new Set() })
+        const catalogue = await gvg.catalogues()
+        const snapshot = await gvg.snapshot(catalogue, true)
+        if (this.connection !== gvg || gvg.closed) throw new Error('GVG closed during full sync')
+        const changed = JSON.stringify(catalogue) !== JSON.stringify(this.catalogue)
+        const { routes, changedRouteIds, observations } = reconcileSnapshot(this.catalogue, this.routes, catalogue, snapshot)
+        this.catalogue = catalogue
+        this.routes = routes
+        this.set({ state: 'live', syncGeneration: this.status.syncGeneration + 1, lastError: null },
+          { catalogue: changed, syncRouteIds: changedRouteIds })
+        this.syncFinishedAt = performance.now()
+        const result = { changed, changedDestinations: changedRouteIds.size, queueWaitMs: Math.round(started - queuedAt),
+          syncMs: Math.round(this.syncFinishedAt - started) }
+        if (observations.length) this.observeRoutes?.(observations)
+        this.observeSync?.(result, origin)
+        return result
       } catch (error) {
         gvg.close(error as Error)
         throw error
       }
-    }).finally(() => { this.catalogueRefresh = undefined })
-    return this.catalogueRefresh
+    }).finally(() => { this.syncRequest = undefined })
+    return this.syncRequest
   }
 
   private async run(controller: AbortController) {
@@ -173,22 +180,21 @@ export class Router {
         signal.throwIfAborted()
         if (active.closed) throw new Error('GVG closed during synchronization')
         this.catalogue = catalogue
-        this.routes = new Map([...routes].map(([id, points]) =>
-          [id, { levels: this.normalize(points), revision: randomUUID() }]))
-        this.catalogueCheckedAt = performance.now()
-        this.set({ state: 'live', lastError: null }, true)
+        this.routes = new Map([...routes].map(([id, points]) => [id, routeRecord(points, catalogue)]))
+        this.set({ state: 'live', syncGeneration: this.status.syncGeneration + 1, lastError: null }, { catalogue: true })
+        this.syncFinishedAt = performance.now()
         let healthDue = Date.now() + 10_000
         while (!signal.aborted && !active.closed) {
           const started = Date.now()
-          await this.serial(async () => {
+          if (this.syncRequest) await this.syncRequest
+          else if (!this.reconfiguring && performance.now() - this.syncFinishedAt >= this.fullSyncMinutes * 60_000) {
+            await this.requestSync({ trigger: 'scheduled' })
+          } else await this.serial(async () => {
             pollSignal.throwIfAborted()
             if (active.closed) throw new Error('GVG connection closed')
             if (Date.now() >= healthDue) {
               await active.health()
               healthDue = Date.now() + 10_000
-            }
-            if (performance.now() - this.catalogueCheckedAt >= this.catalogueCheckMinutes * 60_000) {
-              if (await this.checkCatalogue(active)) throw new Error(CATALOGUE_CHANGED)
             }
             const changes = await active.poll(this.catalogue)
             pollSignal.throwIfAborted()
@@ -214,8 +220,10 @@ export class Router {
   async withLink<T>(action: (link: Link) => Promise<T>) {
     if (this.reconfiguring) throw new Error('BCS endpoint is changing')
     const gvg = this.connection
+    const generation = this.status.syncGeneration
     const ensure = () => {
       if (!gvg || this.connection !== gvg || gvg.closed || this.status.state !== 'live') throw new Error('Router is offline or synchronizing')
+      if (this.status.syncGeneration !== generation) throw new Error('Router synchronized. Select the destination again.')
     }
     ensure()
     return this.serial(async () => {

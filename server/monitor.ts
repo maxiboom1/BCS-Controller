@@ -91,15 +91,12 @@ export function monitorHistory(db: Store) {
   function page(input: z.output<typeof monitorQuery>): MonitorPage {
     const conditions: string[] = []
     const latest = head()
-    const params: Record<string, string | number> = { limit: PAGE_SIZE + 1 }
+    const params: Record<string, string | number> = {}
     if (input.from !== undefined) { conditions.push('r.at >= @from'); params.from = input.from }
     if (input.to !== undefined) { conditions.push('r.at < @to'); params.to = input.to }
     if (input.before) {
-      conditions.push('(r.at, r.id) < (@beforeAt, @beforeId)', 'r.id <= @historyHead')
-      const [at, id, historyHead] = input.before
-      params.beforeAt = at
-      params.beforeId = id
-      params.historyHead = historyHead
+      conditions.push('r.id <= @historyHead')
+      params.historyHead = input.before[2]
     }
     const query = input.q.toLowerCase()
     if ([...query].length >= 3 && !query.includes('\0')) {
@@ -109,15 +106,22 @@ export function monitorHistory(db: Store) {
       conditions.push('instr(r.search_text, @query) > 0')
       params.query = query
     }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    const where = () => conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+    const totalMatches = db.sql.prepare(`SELECT count(*) FROM route_history AS r ${where()}`).pluck().get(params) as number
+    if (input.before) {
+      conditions.push('(r.at, r.id) < (@beforeAt, @beforeId)')
+      const [at, id] = input.before
+      params.beforeAt = at
+      params.beforeId = id
+    }
     const rows = db.sql.prepare(`
       SELECT r.id, r.at, r.user, r.userIp, r.event, r.panelName, r.destination, r.source
-      FROM route_history AS r ${where} ORDER BY r.at DESC, r.id DESC LIMIT @limit
-    `).all(params) as MonitorRow[]
+      FROM route_history AS r ${where()} ORDER BY r.at DESC, r.id DESC LIMIT @limit
+    `).all({ ...params, limit: PAGE_SIZE + 1 }) as MonitorRow[]
     const hasOlder = rows.length > PAGE_SIZE
     if (hasOlder) rows.pop()
     const last = rows.at(-1)
-    return { rows, nextCursor: hasOlder && last ? `${last.at}:${last.id}:${input.before?.[2] ?? latest}` : null, head: latest }
+    return { rows, nextCursor: hasOlder && last ? `${last.at}:${last.id}:${input.before?.[2] ?? latest}` : null, head: latest, totalMatches }
   }
 
   return { record, page, head }

@@ -5,7 +5,7 @@ import { ChevronDown, LogOut } from 'lucide-react'
 import type { Route, Snapshot } from '../shared/model.ts'
 import { Admin } from './admin.tsx'
 import { api, ApiError } from './api.ts'
-import { Notice, StatusBadge } from './components.tsx'
+import { Notice } from './components.tsx'
 import { Operator } from './operator.tsx'
 import brandMark from './brand-mark.svg'
 import './styles.css'
@@ -107,6 +107,16 @@ function App() {
       const route = JSON.parse(event.data) as Route
       setState(previous => previous && { ...previous, routes: [...previous.routes.filter(item => item.destinationId !== route.destinationId), route] })
     })
+    events.addEventListener('router', event => {
+      seen()
+      const { router, routes } = JSON.parse(event.data) as Pick<Snapshot, 'router' | 'routes'>
+      setState(previous => {
+        if (!previous) return previous
+        if (!routes.length) return { ...previous, router }
+        const changed = new Set(routes.map(route => route.destinationId))
+        return { ...previous, router, routes: [...previous.routes.filter(route => !changed.has(route.destinationId)), ...routes] }
+      })
+    })
     events.addEventListener('monitor', event => {
       seen()
       setMonitorHead(JSON.parse(event.data) as number)
@@ -121,9 +131,9 @@ function App() {
     }
     return () => { active = false; clearTimeout(timeout); events.close(); setTransport(false) }
   }, [state?.user.id, streamGeneration])
-  const applyRoute = useCallback((route: Route, previous: string | undefined, connectedAt: number) => {
+  const applyRoute = useCallback((route: Route, previous: string | undefined, syncGeneration: number) => {
     setState(state => {
-      if (state?.router.state !== 'live' || state.router.connectedAt !== connectedAt) return state
+      if (state?.router.state !== 'live' || state.router.syncGeneration !== syncGeneration) return state
       const current = state.routes.find(item => item.destinationId === route.destinationId)
       if (current && current.revision !== previous && current.revision !== route.revision) return state
       return { ...state, routes: [...state.routes.filter(item => item.destinationId !== route.destinationId), route] }
@@ -154,8 +164,6 @@ function App() {
         <ChevronDown size={15} aria-hidden="true" />
       </div>}
       <div className="header-end">
-        {isAdmin && <>{state.router.mode === 'simulator' && <span className="mode-tag">Simulator</span>}
-          <StatusBadge status={status} /></>}
         {!isAdmin && state.user.role === 'admin' && <a className="admin-link" href="/admin">Admin</a>}
         <span className="username" title={state.user.username}>{state.user.username}</span>
         <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={signOut}><LogOut size={18} /></button></div>

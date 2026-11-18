@@ -31,8 +31,8 @@ export type RouterStatus = {
   endpoint: string
   mode: 'simulator' | 'live-readonly' | 'live'
   writes: boolean
-  selectedLevels: boolean
   connectedAt: number | null
+  syncGeneration: number
   lastError: string | null
 }
 export const MIN_PASSWORD_LENGTH = 6
@@ -42,13 +42,14 @@ export type ControllerSettings = {
 export type SettingsView = {
   settings: ControllerSettings; activeUrl: string; activePort: number; version: string
 }
+export type FullSyncResult = { changed: boolean; changedDestinations: number; queueWaitMs: number; syncMs: number }
 export type ProtocolDirection = 'TX' | 'RX'
 export type ProtocolPacket = { id: number; at: number; direction: ProtocolDirection; wire: string }
 export type MonitorRow = {
   id: number; at: number; user: string; userIp: string | null; event: 'Route' | 'Salvo'; panelName: string | null
   destination: string; source: string
 }
-export type MonitorPage = { rows: MonitorRow[]; nextCursor: string | null; head: number }
+export type MonitorPage = { rows: MonitorRow[]; nextCursor: string | null; head: number; totalMatches: number }
 export type OnlineSession = {
   id: string; username: string; ip: string; browser: string; lastActivityAt: number; current: boolean
 }

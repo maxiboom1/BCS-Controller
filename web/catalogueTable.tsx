@@ -20,7 +20,9 @@ export function CatalogueTable<T extends { id: string }>({ label, columns, rows,
   const [height, setHeight] = useState(384)
   const start = Math.max(0, Math.min(rows.length, Math.floor(top / ROW_HEIGHT)) - OVERSCAN)
   const end = Math.min(rows.length, start + Math.ceil(height / ROW_HEIGHT) + 2 * OVERSCAN)
-  const active = selection ? rows.findIndex(row => row.id === selection.active) : -1
+  const selectedIndex = selection ? rows.findIndex(row => row.id === selection.active) : -1
+  const active = selectedIndex >= start && selectedIndex < end ? selectedIndex
+    : selection ? Math.min(rows.length - 1, Math.ceil(top / ROW_HEIGHT)) : -1
   useLayoutEffect(() => {
     const element = viewport.current!
     const measure = () => { setHeight(element.clientHeight); setTop(element.scrollTop) }

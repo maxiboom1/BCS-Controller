@@ -46,13 +46,14 @@ export function useCatalogue(kind: Kind, refresh: number) {
   return { items, loading, error }
 }
 
-export function Tabs<T extends string>({ label, tabs, active, change, children }: {
-  label: string; tabs: readonly T[]; active: T; change: (tab: T) => void; children: ReactNode
+export function Tabs<T extends string>({ label, tabs, active, change, problems, children }: {
+  label: string; tabs: readonly T[]; active: T; change: (tab: T) => void; problems?: Partial<Record<T, string>>; children: ReactNode
 }) {
   const id = useId()
   return <>
     <div className="admin-tabs" role="tablist" aria-label={label}>{tabs.map((tab, index) =>
       <button key={tab} id={id + index} type="button" role="tab" aria-selected={active === tab}
+        aria-description={problems?.[tab]} title={problems?.[tab]}
         tabIndex={active === tab ? 0 : -1} aria-controls={id + '-panel'} onClick={() => change(tab)}
         onKeyDown={event => {
           const next = { ArrowLeft: (index - 1 + tabs.length) % tabs.length, ArrowRight: (index + 1) % tabs.length,
@@ -61,7 +62,7 @@ export function Tabs<T extends string>({ label, tabs, active, change, children }
           event.preventDefault()
           change(tabs[next])
           document.getElementById(id + next)?.focus()
-        }}>{tab}</button>
+        }}>{tab}{problems?.[tab] && <span className="tab-problem" aria-hidden="true" />}</button>
     )}</div>
     <div role="tabpanel" aria-labelledby={id + tabs.indexOf(active)} id={id + '-panel'}>{children}</div>
   </>

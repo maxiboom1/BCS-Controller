@@ -89,12 +89,12 @@ export async function createApp(options: AppOptions) {
     return panel
   }
 
-  function snapshot(session: string): Snapshot | undefined {
+  function snapshot(session: string, routeIds?: ReadonlySet<string>): Snapshot | undefined {
     const account = accountFor(session)
     if (!account) return
     const panels = db.panels().filter(panel => account.panelIds.includes(panel.id)).map(panel => viewPanel(db, router, panel))
     const ids = new Set(panels.flatMap(panel => panel.destinations.filter(item => item.valid).map(item => item.id)))
-    const routes = [...ids].flatMap(id => viewRoute(db, router, id) ?? [])
+    const routes = [...ids].flatMap(id => !routeIds || routeIds.has(id) ? viewRoute(db, router, id) ?? [] : [])
     const levels = router.catalogue.levels.map(({ id, name }) => ({ id, name }))
     return { user: account, panels, router: router.status, routes, levels }
   }
@@ -121,10 +121,18 @@ export async function createApp(options: AppOptions) {
       log('Could not record Monitor history · ' + (error as Error).message, 'ERROR')
     }
   }
-  function publish(destinationId?: string) {
+  router.observeSync = (result, { trigger, username }) => {
+    log(`Full sync completed · ${trigger}${username ? ' by ' + username : ''} · queue ${result.queueWaitMs} ms · routing pause ${result.syncMs} ms · ${result.changedDestinations} changed destinations${result.changed ? ' · catalogue updated' : ''}`)
+  }
+  function publish(destinationId?: string, syncRouteIds?: ReadonlySet<string>) {
     for (const [stream, { session }] of streams) {
       const account = accountFor(session)
       if (!account) { event(stream, 'expired', null); stream.end(); continue }
+      if (syncRouteIds) {
+        const routes = syncRouteIds.size ? snapshot(session, syncRouteIds)?.routes ?? [] : []
+        event(stream, 'router', { router: router.status, routes })
+        continue
+      }
       if (!destinationId) { event(stream, 'snapshot', snapshot(session)); continue }
       const name = router.catalogue.destinations.find(item => item.id === destinationId)?.name
       if (account.panelIds.some(id => db.findPanel(id)?.destinations.some(item => item.id === destinationId && item.name === name))) {
@@ -146,7 +154,7 @@ export async function createApp(options: AppOptions) {
       const sources = router.catalogue.sources.filter(source => source.name.trim()).length
       log(`Loaded BCS database · ${router.routes.size} destinations · ${sources} named sources · ${router.catalogue.levels.length} levels`)
     }
-    publish(change.destinationId)
+    publish(change.destinationId, change.catalogue ? undefined : change.syncRouteIds)
   }
 
   app.addHook('onRequest', async (request, reply) => {
@@ -325,16 +333,14 @@ export async function createApp(options: AppOptions) {
       const catalogue = db.catalogue('live:' + endpointAddress(next.bcsHost, next.bcsPort))
       await router.configure(next, catalogue)
       publish()
-      log(`Settings saved · by ${actor.username} · ${endpointAddress(next.bcsHost, next.bcsPort)} · poll ${next.pollIntervalMs} ms · catalogue ${next.catalogueCheckMinutes} min · web port ${next.webPort} · idle timeout ${next.idleMinutes || 'off'}`)
+      log(`Settings saved · by ${actor.username} · ${endpointAddress(next.bcsHost, next.bcsPort)} · poll ${next.pollIntervalMs} ms · full sync ${next.catalogueCheckMinutes} min · web port ${next.webPort} · idle timeout ${next.idleMinutes || 'off'}`)
       return settingsView()
     } finally { savingSettings = false }
   })
   app.post('/api/admin/catalogue/refresh', async request => {
     const actor = admin(request)
     try {
-      const changed = await router.refreshCatalogue()
-      log(`Catalogue checked · by ${actor.username} · ${changed ? 'changed, resynchronizing' : 'no changes'}`)
-      return { changed }
+      return await router.fullSyncNow(actor.username)
     } catch (error) {
       throw new HttpError(503, (error as Error).message)
     }

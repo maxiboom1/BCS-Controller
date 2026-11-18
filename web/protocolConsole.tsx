@@ -1,5 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProtocolDirection, ProtocolPacket } from '../shared/model.ts'
 
 const MAX_PACKETS = 8000
@@ -20,9 +19,7 @@ const PacketLine = memo(function PacketLine({ packet }: { packet: ProtocolPacket
   </div>
 })
 
-export function ProtocolConsole({ onClose }: { onClose: () => void }) {
-  const label = useId()
-  const dialog = useRef<HTMLDialogElement>(null)
+export function ProtocolConsole({ visible }: { visible: boolean }) {
   const viewport = useRef<HTMLDivElement>(null)
   const [packets, setPackets] = useState<ProtocolPacket[]>([])
   const [filter, setFilter] = useState<ProtocolDirection | 'All'>('All')
@@ -30,7 +27,6 @@ export function ProtocolConsole({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState('Connecting…')
 
   useEffect(() => {
-    dialog.current?.showModal()
     const source = new EventSource('/api/admin/protocol-events')
     source.onopen = () => setStatus('Listening')
     source.onerror = () => setStatus(source.readyState === EventSource.CLOSED ? 'Stream unavailable' : 'Reconnecting…')
@@ -46,18 +42,11 @@ export function ProtocolConsole({ onClose }: { onClose: () => void }) {
   }, [])
 
   useLayoutEffect(() => {
-    if (following && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight
-  }, [following, filter, packets])
+    if (visible && following && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight
+  }, [visible, following, filter, packets])
 
-  const visible = filter === 'All' ? packets : packets.filter(packet => packet.direction === filter)
-  return <dialog ref={dialog} className="protocol-dialog" aria-labelledby={label} onClose={onClose}>
-    <div className="protocol-console">
-      <header className="protocol-header">
-        <h2 id={label}>GVG traffic</h2>
-        <button type="button" className="icon-button" aria-label="Close GVG traffic" autoFocus onClick={() => dialog.current?.close()}>
-          <X size={18} aria-hidden="true" />
-        </button>
-      </header>
+  const filtered = filter === 'All' ? packets : packets.filter(packet => packet.direction === filter)
+  return <div className="protocol-console" hidden={!visible}>
       <div className="protocol-toolbar">
         <div className="direction-filter" role="group" aria-label="Direction">
           {directions.map(({ label, title }) => <button key={label} type="button" title={title} aria-pressed={filter === label}
@@ -68,9 +57,8 @@ export function ProtocolConsole({ onClose }: { onClose: () => void }) {
         <span className="muted protocol-status" role="status">{status}</span>
       </div>
       <div className="protocol-messages" role="region" aria-label="Protocol messages" tabIndex={0} ref={viewport}>
-        {!visible.length && <p className="muted">{filter === 'All' ? 'Waiting for protocol traffic…' : 'Waiting for ' + filter + ' messages…'}</p>}
-        {visible.map(packet => <PacketLine key={packet.at + ':' + packet.id} packet={packet} />)}
+        {!filtered.length && <p className="muted">{filter === 'All' ? 'Waiting for protocol traffic…' : 'Waiting for ' + filter + ' messages…'}</p>}
+        {visible && filtered.map(packet => <PacketLine key={packet.at + ':' + packet.id} packet={packet} />)}
       </div>
-    </div>
-  </dialog>
+  </div>
 }

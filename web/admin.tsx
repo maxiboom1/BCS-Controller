@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, Grid2X2, Monitor, Plus, Settings, Tags, Users } from 'lucide-react'
 import type { AdminPanelView, RouterStatus, User } from '../shared/model.ts'
 import { api, ApiError } from './api.ts'
-import { elapsedClock, Notice, SearchBox } from './components.tsx'
+import { elapsedClock, Notice, SearchBox, StatusBadge } from './components.tsx'
 import { PanelEditor, UserEditor } from './adminEditors.tsx'
 import { LabelsTab } from './labels.tsx'
 import { MonitorTab } from './monitorTab.tsx'
@@ -26,9 +26,15 @@ function AdminFooter({ status, version }: { status: RouterStatus; version?: stri
   }, [connectedAt])
   const uptime = connectedAt === null ? '—' : elapsedClock(now, connectedAt)
   return <footer className="admin-footer" aria-label="Server status">
-    <span>BCS {status.endpoint}</span>
-    <span>Uptime <span aria-label="Connection uptime">{uptime}</span></span>
-    {version && <span>Ultrix {version}</span>}
+    <div className="admin-footer-meta">
+      <span>BCS {status.endpoint}</span>
+      <span>Uptime <span aria-label="Connection uptime">{uptime}</span></span>
+      {version && <span>Ultrix {version}</span>}
+    </div>
+    <div className="status-connection" role="status">
+      {status.mode === 'simulator' && <span className="mode-label">Simulator</span>}
+      <StatusBadge status={status} />
+    </div>
   </footer>
 }
 

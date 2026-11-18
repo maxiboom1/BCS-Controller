@@ -2,6 +2,13 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.08 · 2026-11-18
+
+- Added scheduled and manual full sync on the active GVG connection. The app verifies the catalogues and complete route snapshot before resuming routing, preserves unchanged route revisions, and reports timing.
+- Enabled selected-level routing and added a Levels assignment tab with panel validation markers.
+- Added inline alias editing, muted Admin focus styles, a shorter Admin header, and connection status in the footer.
+- Split Settings into Ultrix Communication, Web Settings, and an inline GVG Console. Simplified Monitor to 100-entry pages with previous and next arrows and a page count.
+
 ## 1.0.07 · 2026-11-17
 
 - Added an admin-only Monitor with live routing history, search, time filters, and 100-entry pages.

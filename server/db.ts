@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Binding, Catalogue, ControllerSettings, Kind, Panel, PanelInput, TakeResult, User } from '../shared/model.ts'
-import { DEFAULT_SETTINGS } from './settings.ts'
+import { DEFAULT_SETTINGS, MIN_FULL_SYNC_MINUTES } from './settings.ts'
 
 type UserRow = { id: string; username: string; password: string; role: User['role']; enabled: number }
 type ActionRow = { fingerprint: string; result: string | null; attempted: number }
@@ -207,7 +207,9 @@ export class Store {
 
   controllerSettings() {
     const row = this.sql.prepare("SELECT value FROM settings WHERE key = 'controller-settings'").get() as { value: string } | undefined
-    return row ? { ...DEFAULT_SETTINGS, ...JSON.parse(row.value) as Partial<ControllerSettings> } : undefined
+    if (!row) return
+    const settings = { ...DEFAULT_SETTINGS, ...JSON.parse(row.value) as Partial<ControllerSettings> }
+    return { ...settings, catalogueCheckMinutes: Math.max(MIN_FULL_SYNC_MINUTES, settings.catalogueCheckMinutes) }
   }
 
   saveControllerSettings(settings: ControllerSettings) {

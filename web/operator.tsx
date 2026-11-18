@@ -6,7 +6,7 @@ import { StatusBadge } from './components.tsx'
 import { DestinationGrid } from './destinationGrid.tsx'
 import { videoSourceId } from './routeLevels.ts'
 
-type UpdateRoute = (route: Route, previous: string | undefined, connectedAt: number) => void
+type UpdateRoute = (route: Route, previous: string | undefined, syncGeneration: number) => void
 type Staged = { source: BoundItem; revision: string }
 type Feedback = { message: string; error?: boolean; success?: boolean; uncertain?: boolean }
 type OperatorContext = { state: Snapshot; status: RouterStatus; error: string; update: UpdateRoute }
@@ -15,11 +15,11 @@ export function Operator({ panel, ...context }: OperatorContext & { panel?: Pane
   const [holds, setHolds] = useState(new Map<string, number>())
   const [taking, setTaking] = useState(false)
 
-  function setVerification(id: string, connectedAt: number, required: boolean) {
+  function setVerification(id: string, syncGeneration: number, required: boolean) {
     setHolds(previous => {
       const next = new Map(previous)
-      if (required && (next.get(id) ?? 0) <= connectedAt) next.set(id, connectedAt)
-      else if (!required && next.get(id) === connectedAt) next.delete(id)
+      if (required && (next.get(id) ?? 0) <= syncGeneration) next.set(id, syncGeneration)
+      else if (!required && next.get(id) === syncGeneration) next.delete(id)
       return next
     })
   }
@@ -51,7 +51,7 @@ function OperatorStatus({ status, destination, summary, warning, feedback }: {
 
 function RoutingPanel({ panel, state, status, error, update, holds, setVerification, taking, setTaking }: OperatorContext & {
   panel: PanelView; holds: ReadonlyMap<string, number>
-  setVerification: (id: string, connectedAt: number, required: boolean) => void
+  setVerification: (id: string, syncGeneration: number, required: boolean) => void
   taking: boolean; setTaking: (taking: boolean) => void
 }) {
   const [destinationId, setDestinationId] = useState('')
@@ -60,15 +60,15 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
   const [feedback, setFeedback] = useState<Feedback>()
   const verification = useRef<AbortController>(null)
   const destination = panel.destinations.find(item => item.id === destinationId)
-  const connectedAt = status.state === 'live' ? status.connectedAt : null
-  const online = connectedAt !== null
-  const needsVerification = online && holds.get(destinationId) === connectedAt
+  const syncGeneration = status.state === 'live' ? status.syncGeneration : null
+  const online = syncGeneration !== null
+  const needsVerification = online && holds.get(destinationId) === syncGeneration
   const routes = useMemo(() => {
-    const available = connectedAt === null ? [] : state.routes.filter(route => holds.get(route.destinationId) !== connectedAt)
+    const available = syncGeneration === null ? [] : state.routes.filter(route => holds.get(route.destinationId) !== syncGeneration)
     return new Map(available.map(route => [route.destinationId, route]))
-  }, [connectedAt, holds, state.routes])
+  }, [syncGeneration, holds, state.routes])
   const route = routes.get(destinationId)
-  useEffect(() => { if (!online) setStaged(undefined) }, [online])
+  useEffect(() => { setStaged(undefined) }, [syncGeneration])
   useEffect(() => () => verification.current?.abort(), [])
 
   const points = panel.levels.map(level => route?.levels[level.id])
@@ -82,10 +82,10 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
   const stageChanged = !!staged && staged.revision !== route?.revision
   const protectedLevels = chopping || points.some(point => point?.protected)
   const canRoute = Boolean(hasStatus && resolved && !protectedLevels &&
-    status.writes && (panel.allLevels || status.selectedLevels) && !taking && !checking)
+    status.writes && !taking && !checking)
   const readbackWarning = !hasStatus || !panel.validLevels || (!resolved && sources.size <= 1 && !chopping)
 
-  let summary = 'Offline or stale'
+  let summary = status.state === 'syncing' ? 'Synchronizing' : 'Offline or stale'
   if (online && destination) {
     if (!destination.valid || !panel.validLevels) summary = 'Catalogue binding requires review'
     else if (checking) summary = 'Verifying destination…'
@@ -104,11 +104,10 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
   else if (!action && !checking && needsVerification) action = { message: 'Select the destination again to verify routing.', error: true }
   else if (!action && hasStatus && protectedLevels) action = { message: 'Panel levels are protected or chopping.', error: true }
   else if (!action && hasStatus && !status.writes) action = { message: 'Read-only router', error: true }
-  else if (!action && hasStatus && !panel.allLevels && !status.selectedLevels) action = { message: 'Selected-level routing is disabled.', error: true }
   else if (!action && staged) action = { message: 'Staged · ' + staged.source.label }
 
   async function take(source: BoundItem, revision: string) {
-    if (!canRoute || !source.valid || !destination?.valid || connectedAt === null) return
+    if (!canRoute || !source.valid || !destination?.valid || syncGeneration === null) return
     setTaking(true)
     setStaged(undefined)
     setFeedback(undefined)
@@ -116,12 +115,12 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
       const result = await api<TakeResult>('/panels/' + panel.id + '/takes', 'POST', {
         actionId: newActionId(), sourceId: source.id, destinationId, revision, panelVersion: panel.version,
       })
-      if (result.route) update(result.route, revision, connectedAt)
-      if (result.outcome === 'uncertain') setVerification(destinationId, connectedAt, true)
+      if (result.route) update(result.route, revision, syncGeneration)
+      if (result.outcome === 'uncertain') setVerification(destinationId, syncGeneration, true)
       setFeedback(result.outcome === 'confirmed' ? { message: 'TAKE confirmed', success: true }
         : { message: result.message, error: true, uncertain: result.outcome === 'uncertain' })
     } catch {
-      setVerification(destinationId, connectedAt, true)
+      setVerification(destinationId, syncGeneration, true)
       setFeedback({ message: 'TAKE request could not be confirmed. Check the destination before retrying.', error: true, uncertain: true })
     } finally { setTaking(false) }
   }
@@ -137,7 +136,7 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
     setDestinationId(id)
     setStaged(undefined)
     setFeedback(undefined)
-    if (connectedAt === null || holds.get(id) !== connectedAt || !panel.destinations.some(item => item.id === id && item.valid)) return
+    if (syncGeneration === null || holds.get(id) !== syncGeneration || !panel.destinations.some(item => item.id === id && item.valid)) return
 
     const controller = new AbortController()
     verification.current = controller
@@ -146,8 +145,8 @@ function RoutingPanel({ panel, state, status, error, update, holds, setVerificat
     try {
       const checked = await api<Route>('/panels/' + panel.id + '/destinations/' + id, 'GET', undefined, controller.signal)
       if (controller.signal.aborted) return
-      update(checked, previous, connectedAt)
-      setVerification(id, connectedAt, false)
+      update(checked, previous, syncGeneration)
+      setVerification(id, syncGeneration, false)
     } catch (err) {
       if (!controller.signal.aborted) setFeedback({ message: (err as Error).message, error: true })
     } finally {

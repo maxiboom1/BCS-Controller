@@ -11,7 +11,6 @@ export function configuration(env = process.env) {
     mode: mode as RouterStatus['mode'], database: resolve(base, 'controller.sqlite'),
     bcsHost: env.BCS_HOST ?? DEFAULT_SETTINGS.bcsHost,
     bcsPort: port(env.BCS_PORT ?? String(DEFAULT_SETTINGS.bcsPort)),
-    selectedLevels: env.BCS_ENABLE_SELECTED_LEVELS === 'yes',
     host: env.WEB_HOST ?? '127.0.0.1', port: port(env.WEB_PORT ?? (mode === 'simulator' ? '8088' : String(DEFAULT_SETTINGS.webPort))),
   }
 }

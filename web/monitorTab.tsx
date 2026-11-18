@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MonitorPage } from '../shared/model.ts'
 import { api } from './api.ts'
 import { Notice, SearchBox } from './components.tsx'
@@ -10,7 +11,7 @@ const columns = ['Time', 'User', 'User IP', 'Event', 'Panel Name', 'Destination'
 const clock = new Intl.DateTimeFormat(undefined, {
   year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
 })
-type OlderPage = { cursors: string[]; bounds: TimeBounds; head: number }
+type OlderPage = { cursors: string[]; bounds: TimeBounds }
 type LoadedPage = { result: MonitorPage; bounds: TimeBounds }
 
 export function MonitorTab({ head, revision }: { head: number; revision: number }) {
@@ -87,13 +88,15 @@ export function MonitorTab({ head, revision }: { head: number; revision: number 
   function goOlder() {
     const cursor = page?.result.nextCursor
     if (page && cursor) setOlder(older ? { ...older, cursors: [...older.cursors, cursor] }
-      : { cursors: [cursor], bounds: page.bounds, head: page.result.head })
+      : { cursors: [cursor], bounds: page.bounds })
   }
   function goNewer() {
     setOlder(current => current && current.cursors.length > 1 ? { ...current, cursors: current.cursors.slice(0, -1) } : undefined)
   }
 
   const rows = page?.result.rows ?? []
+  const pageNumber = (older?.cursors.length ?? 0) + 1
+  const totalPages = page && Math.ceil(page.result.totalMatches / 100)
   const empty = !valid ? 'Enter 1–1000 hours.' : error ? 'History unavailable.' : page ? 'No matching activity.' : 'Loading activity…'
   return <div className="admin-view">
     <div className="toolbar monitor-toolbar">
@@ -124,10 +127,13 @@ export function MonitorTab({ head, revision }: { head: number; revision: number 
       </table>
     </div>
     <div className="actions monitor-actions">
-      {older && head > older.head && <span className="muted" role="status">New activity available</span>}
-      <button type="button" disabled={!page?.result.nextCursor} onClick={goOlder}>Older</button>
-      <button type="button" disabled={!older} onClick={goNewer}>Newer</button>
-      <button type="button" disabled={!older} onClick={() => setOlder(undefined)}>Latest</button>
+      <button type="button" className="icon-button" aria-label="Previous page" disabled={!older} onClick={goNewer}>
+        <ChevronLeft size={18} aria-hidden="true" />
+      </button>
+      <span className="muted" aria-live="polite">{totalPages === undefined ? `Page ${pageNumber}` : `Page ${totalPages ? pageNumber : 0} of ${totalPages}`}</span>
+      <button type="button" className="icon-button" aria-label="Next page" disabled={!page?.result.nextCursor} onClick={goOlder}>
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>
     </div>
   </div>
 }

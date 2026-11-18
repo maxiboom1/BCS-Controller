@@ -74,9 +74,9 @@ export class Gvg {
     this.report('TX', packet)
   }
 
-  private request(fields: string[], accept: Pending['accept'], done: Pending['done'], ms: number, silence = false) {
+  private request(fields: string[], accept: Pending['accept'], done: Pending['done'], ms: number, silence = false, prefix?: string[]) {
     if (this.closed || this.pending) throw new Error('GVG socket unavailable or busy')
-    const packet = encode(fields)
+    const packets = prefix ? [encode(prefix), encode(fields)] : [encode(fields)]
     return new Promise<Frame[]>((resolve, reject) => {
       const frames: Frame[] = []
       const finish = (error?: Error) => {
@@ -90,7 +90,7 @@ export class Gvg {
         else this.socket.destroy(new Error('GVG timeout or incomplete reply for ' + fields.join(',')))
       }, ms)
       this.pending = { frames, accept, done, finish }
-      this.write(packet, error => { if (error) this.socket.destroy(error) })
+      for (const packet of packets) this.write(packet, error => { if (error) this.socket.destroy(error) })
     })
   }
 
@@ -111,7 +111,7 @@ export class Gvg {
     return { sources, destinations, levels, salvos }
   }
 
-  async snapshot(catalogue: Catalogue) {
+  async snapshot(catalogue: Catalogue, force = false) {
     const names = new Set(catalogue.destinations.map(item => item.name))
     const complete = new Set<string>()
     const frames = await this.request(['QD'], frame => frame.fields[0] === 'DQ' && names.has(frame.fields[1]),
@@ -119,9 +119,9 @@ export class Gvg {
         const last = items.at(-1)!
         if (last.sequence === '0') complete.add(last.fields[1])
         return complete.size === names.size
-      }, 8000)
+      }, 8000, false, force ? ['BK', 'D'] : undefined)
     const routes = decodeStatus(frames, catalogue)
-    if (routes.size !== names.size) throw new Error('Incomplete GVG startup snapshot')
+    if (routes.size !== names.size) throw new Error('Incomplete GVG snapshot')
     return routes
   }
 
