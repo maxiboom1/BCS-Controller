@@ -25,15 +25,20 @@ function stableIds(before: Item[], after: Item[]) {
   return new Set(after.filter(item => names.get(item.id) === item.name).map(item => item.id))
 }
 
+function sharedNamedIds(before: Item[], after: Item[]) {
+  const named = new Set(before.filter(item => item.name.trim()).map(item => item.id))
+  return new Set(after.filter(item => item.name.trim() && named.has(item.id)).map(item => item.id))
+}
+
 export function reconcileSnapshot(previousCatalogue: Catalogue, previousRoutes: ReadonlyMap<string, StatusRecord>,
   catalogue: Catalogue, snapshot: ReadonlyMap<string, Crosspoints>) {
-  const stableDestinations = stableIds(previousCatalogue.destinations, catalogue.destinations)
-  const stableSources = stableIds(previousCatalogue.sources, catalogue.sources)
+  const sharedDestinations = sharedNamedIds(previousCatalogue.destinations, catalogue.destinations)
+  const sharedSources = sharedNamedIds(previousCatalogue.sources, catalogue.sources)
   const stableLevels = stableIds(previousCatalogue.levels, catalogue.levels)
   const routes = new Map<string, StatusRecord>()
   const observations: RouteObservation[] = []
   const changedRouteIds = new Set<string>()
-  function comparableSource(id: string | null) { return id === null || stableSources.has(id) }
+  function comparableSource(id: string | null) { return id === null || sharedSources.has(id) }
 
   for (const [id, points] of snapshot) {
     const previous = previousRoutes.get(id)
@@ -41,7 +46,7 @@ export function reconcileSnapshot(previousCatalogue: Catalogue, previousRoutes: 
     routes.set(id, record)
     if (record === previous) continue
     changedRouteIds.add(id)
-    if (!previous || !stableDestinations.has(id)) continue
+    if (!previous || !sharedDestinations.has(id)) continue
     const levels = sourceChanges(previous.levels, record.levels).filter(level =>
       stableLevels.has(level.id) && comparableSource(level.sourceId) && comparableSource(previous.levels[level.id].sourceId))
     if (levels.length) observations.push({ at: Date.now(), destinationId: id, levels })

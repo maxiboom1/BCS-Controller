@@ -2,6 +2,12 @@
 
 Each production change set gets a version bump and a dated release entry.
 
+## 1.0.09 · 2026-11-18
+
+- Moved Levels beside Panel Settings and made the assignment tables the only controls for routing scope.
+- Separated source, destination, and salvo renames from actual route changes in the full sync summary.
+- Added SRC Rename, DST Rename, and Salvo Rename events to Monitor, with searchable old and new BCS names. Existing history is retained.
+
 ## 1.0.08 · 2026-11-18
 
 - Added scheduled and manual full sync on the active GVG connection. The app verifies the catalogues and complete route snapshot before resuming routing, preserves unchanged route revisions, and reports timing.

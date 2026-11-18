@@ -1,6 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises'
 import { emptyCatalogue } from '../shared/model.ts'
 import type { Catalogue, ControllerSettings, Crosspoints, FullSyncResult, RouterStatus } from '../shared/model.ts'
+import { findCatalogueRenames } from './catalogueRenames.ts'
 import { Gvg } from './gvg.ts'
 import type { PacketObserver } from './gvg.ts'
 import { reconcileSnapshot, routeRecord, sourceChanges } from './routeCache.ts'
@@ -133,13 +134,17 @@ export class Router {
         const snapshot = await gvg.snapshot(catalogue, true)
         if (this.connection !== gvg || gvg.closed) throw new Error('GVG closed during full sync')
         const changed = JSON.stringify(catalogue) !== JSON.stringify(this.catalogue)
+        const renamed = { sources: 0, destinations: 0, salvos: 0 }
+        if (changed) {
+          for (const rename of findCatalogueRenames(this.catalogue, catalogue)) renamed[rename.kind]++
+        }
         const { routes, changedRouteIds, observations } = reconcileSnapshot(this.catalogue, this.routes, catalogue, snapshot)
         this.catalogue = catalogue
         this.routes = routes
         this.set({ state: 'live', syncGeneration: this.status.syncGeneration + 1, lastError: null },
           { catalogue: changed, syncRouteIds: changedRouteIds })
         this.syncFinishedAt = performance.now()
-        const result = { changed, changedDestinations: changedRouteIds.size, queueWaitMs: Math.round(started - queuedAt),
+        const result = { changed, renamed, changedDestinations: observations.length, queueWaitMs: Math.round(started - queuedAt),
           syncMs: Math.round(this.syncFinishedAt - started) }
         if (observations.length) this.observeRoutes?.(observations)
         this.observeSync?.(result, origin)

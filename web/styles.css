@@ -155,6 +155,7 @@ legend { color: var(--muted); font-size: 0.89rem; padding: 0; }
 .assignment-picker { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.65rem; }
 .assignment-side { display: flex; flex-direction: column; gap: 0.45rem; min-height: 0; min-width: 0; }
 .assignment-toolbar { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 0.25rem; }
+.assignment-toolbar:empty { min-height: 34px; }
 .assignment-toolbar button { min-height: 34px; padding: 0.18rem 0.45rem; }
 .assignment-toolbar .search input { min-height: 34px; padding-block: 0.3rem; }
 .transfer-actions { display: grid; align-content: center; justify-content: center; gap: 0.35rem; }

@@ -56,7 +56,7 @@ export function UserEditor({ user, panels, done, cancel, missing }: EditorAction
   </form>
 }
 
-const panelTabs = ['Panel Settings', 'Sources', 'Destinations', 'Levels', 'Salvos'] as const
+const panelTabs = ['Panel Settings', 'Levels', 'Sources', 'Destinations', 'Salvos'] as const
 type PanelTab = (typeof panelTabs)[number]
 
 function assignmentProblem(items: BoundItem[], label: string) {
@@ -70,8 +70,7 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
   const [sources, setSources] = useState(panel?.sources ?? [])
   const [destinations, setDestinations] = useState(panel?.destinations ?? [])
   const [salvos, setSalvos] = useState(panel?.salvos ?? [])
-  const [levels, setLevels] = useState(panel?.allLevels ? [] : panel?.levels ?? [])
-  const [all, setAll] = useState(panel?.allLevels ?? true)
+  const [levels, setLevels] = useState<BoundItem[]>()
   const [useTake, setUseTake] = useState(panel?.useTake ?? true)
   const [columns, setColumns] = useState(panel?.columns ?? 6)
   const [busy, setBusy] = useState(false)
@@ -83,7 +82,10 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
   const assignedSources = useMemo(() => reconcileAssignments(sources, sourceList), [sources, sourceList.items, sourceList.loading, sourceList.error])
   const assignedDestinations = useMemo(() => reconcileAssignments(destinations, destinationList),
     [destinations, destinationList.items, destinationList.loading, destinationList.error])
-  const assignedLevels = all ? levelList.items.map(item => ({ ...item, valid: true })) : reconcileAssignments(levels, levelList)
+  const assignedLevels = reconcileAssignments(levels ?? panel?.levels ?? levelList.items.map(item => ({ ...item, valid: true })), levelList)
+  const preserveAllLevels = !levels && (panel?.allLevels ?? true)
+  const levelCountChanged = preserveAllLevels && panel && !levelList.loading && !levelList.error &&
+    assignedLevels.length !== levelList.items.length
   const assignedSalvos = reconcileAssignments(salvos, salvoList)
   const validName = !!name.trim()
   const validColumns = Number.isInteger(columns) && columns >= 2 && columns <= 12
@@ -91,7 +93,7 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
     'Panel Settings': !validName ? 'Enter a panel name.' : !validColumns ? 'Enter 2–12 grid columns.' : undefined,
     Sources: assignmentProblem(assignedSources, 'source'),
     Destinations: assignmentProblem(assignedDestinations, 'destination'),
-    Levels: assignmentProblem(assignedLevels, 'level'),
+    Levels: levelCountChanged ? 'Review the updated level catalogue.' : assignmentProblem(assignedLevels, 'level'),
   }
   const invalidTab = panelTabs.find(key => problems[key])
   const bindings = (rows: BoundItem[]): Binding[] => rows.map(({ id, name }) => ({ id, name }))
@@ -108,7 +110,7 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
     try {
       await api('/admin/panels' + (panel ? '/' + panel.id : ''), panel ? 'PUT' : 'POST', {
         name, sources: bindings(sources), destinations: bindings(destinations), salvos: bindings(salvos),
-        levels: all ? null : bindings(levels), useTake, columns,
+        levels: preserveAllLevels ? null : bindings(assignedLevels), useTake, columns,
       })
       done()
     } catch (err) {
@@ -134,10 +136,8 @@ export function PanelEditor({ panel, refresh, done, cancel, missing }: EditorAct
         {tab === 'Sources' && <AssignmentPicker key={tab} kind="sources" items={assignedSources} change={setSources} listing={sourceList} />}
         {tab === 'Destinations' && <AssignmentPicker key={tab} kind="destinations" items={assignedDestinations}
           change={setDestinations} listing={destinationList} />}
-        {tab === 'Levels' && <>
-          <label className="check"><input type="checkbox" checked={all} onChange={event => setAll(event.target.checked)} /> All levels</label>
-          <AssignmentPicker key={String(all)} kind="levels" items={assignedLevels} change={setLevels} listing={levelList} readOnly={all} />
-        </>}
+        {tab === 'Levels' && <AssignmentPicker key={tab} kind="levels" items={assignedLevels}
+          change={setLevels} listing={levelList} />}
         {tab === 'Salvos' && <AssignmentPicker key={tab} kind="salvos" items={assignedSalvos} change={setSalvos} listing={salvoList} />}
       </Tabs>
     </fieldset>

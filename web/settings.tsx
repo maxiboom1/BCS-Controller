@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CircleHelp } from 'lucide-react'
 import type { ControllerSettings, FullSyncResult, SettingsView } from '../shared/model.ts'
+import { describeSyncChanges } from '../shared/syncSummary.ts'
 import { api } from './api.ts'
 import { Notice, Tabs } from './components.tsx'
 import { ProtocolConsole } from './protocolConsole.tsx'
@@ -66,7 +67,7 @@ export function SettingsTab() {
     try {
       const result = await api<FullSyncResult>('/admin/catalogue/refresh', 'POST')
       const elapsed = Math.round(performance.now() - started)
-      setFeedback({ text: `Sync complete in ${elapsed} ms · routing pause ${result.syncMs} ms · ${result.changedDestinations} changed destinations${result.changed ? ' · catalogue updated' : ''}` })
+      setFeedback({ text: `Sync complete in ${elapsed} ms · routing pause ${result.syncMs} ms · ${describeSyncChanges(result)}` })
     } catch (error) {
       setFeedback({ text: (error as Error).message, error: true })
     } finally { setBusy(undefined) }

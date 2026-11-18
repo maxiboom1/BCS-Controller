@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { Catalogue, Item, MonitorPage, MonitorRow } from '../shared/model.ts'
+import type { Catalogue, Item, MonitorPage, MonitorRow, RenameKind } from '../shared/model.ts'
+import type { CatalogueRename } from './catalogueRenames.ts'
 import type { Store } from './db.ts'
 import type { RouteObservation } from './router.ts'
 
@@ -15,22 +16,37 @@ export const monitorQuery = z.object({
 }).refine(value => value.from === undefined || value.to === undefined || value.from < value.to, 'Invalid time range.')
 
 type Entry = Omit<MonitorRow, 'id'> & { actionKey: string | null; sourceName: string; destinationName: string }
+const renameEvents = {
+  sources: 'SRC Rename', destinations: 'DST Rename', salvos: 'Salvo Rename',
+} as const satisfies Record<RenameKind, MonitorRow['event']>
+const historyColumns = `(
+  id INTEGER PRIMARY KEY, at INTEGER NOT NULL, user TEXT NOT NULL, userIp TEXT,
+  event TEXT NOT NULL CHECK (event IN ('Route', 'Salvo', 'SRC Rename', 'DST Rename', 'Salvo Rename')), panelName TEXT,
+  destination TEXT NOT NULL, source TEXT NOT NULL, destinationName TEXT NOT NULL, sourceName TEXT NOT NULL,
+  actionKey TEXT UNIQUE, search_text TEXT NOT NULL
+)`
 
 export function monitorHistory(db: Store) {
   db.sql.transaction(() => {
+    const schema = db.sql.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'route_history'")
+      .pluck().get() as string | undefined
+    if (!schema) db.sql.exec(`CREATE TABLE route_history ${historyColumns}`)
+    else if (!schema.includes("'SRC Rename'")) {
+      // The FTS index uses row IDs and the content table name. Retain both when replacing the CHECK constraint.
+      db.sql.exec(`
+        CREATE TABLE route_history_new ${historyColumns};
+        INSERT INTO route_history_new SELECT * FROM route_history;
+        DROP TABLE route_history;
+        ALTER TABLE route_history_new RENAME TO route_history;
+      `)
+    }
     db.sql.exec(`
-      CREATE TABLE IF NOT EXISTS route_history (
-        id INTEGER PRIMARY KEY, at INTEGER NOT NULL, user TEXT NOT NULL, userIp TEXT,
-        event TEXT NOT NULL CHECK (event IN ('Route', 'Salvo')), panelName TEXT,
-        destination TEXT NOT NULL, source TEXT NOT NULL, destinationName TEXT NOT NULL, sourceName TEXT NOT NULL,
-        actionKey TEXT UNIQUE, search_text TEXT NOT NULL
-      );
       CREATE INDEX IF NOT EXISTS route_history_time ON route_history (at DESC, id DESC);
       CREATE VIRTUAL TABLE IF NOT EXISTS route_history_search USING fts5(
         search_text, content='route_history', content_rowid='id', tokenize='trigram'
       );
     `)
-  })()
+  }).immediate()
   const insert = db.sql.prepare(`
     INSERT INTO route_history (at, user, userIp, event, panelName, destination, source, destinationName, sourceName, actionKey, search_text)
     VALUES (@at, @user, @userIp, @event, @panelName, @destination, @source, @destinationName, @sourceName, @actionKey, @searchText)
@@ -88,6 +104,14 @@ export function monitorHistory(db: Store) {
     return append(rows)
   }
 
+  function recordRenames(renames: CatalogueRename[], at: number) {
+    if (!renames.length) return 0
+    return append(renames.map(({ kind, previousName, name }) => ({
+      at, user: 'External', userIp: null, event: renameEvents[kind], panelName: null, actionKey: null,
+      source: previousName, sourceName: previousName, destination: name, destinationName: name,
+    })))
+  }
+
   function page(input: z.output<typeof monitorQuery>): MonitorPage {
     const conditions: string[] = []
     const latest = head()
@@ -124,5 +148,5 @@ export function monitorHistory(db: Store) {
     return { rows, nextCursor: hasOlder && last ? `${last.at}:${last.id}:${input.before?.[2] ?? latest}` : null, head: latest, totalMatches }
   }
 
-  return { record, page, head }
+  return { record, recordRenames, page, head }
 }

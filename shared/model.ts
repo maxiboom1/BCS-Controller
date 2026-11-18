@@ -42,11 +42,15 @@ export type ControllerSettings = {
 export type SettingsView = {
   settings: ControllerSettings; activeUrl: string; activePort: number; version: string
 }
-export type FullSyncResult = { changed: boolean; changedDestinations: number; queueWaitMs: number; syncMs: number }
+export type RenameKind = 'sources' | 'destinations' | 'salvos'
+export type FullSyncResult = {
+  changed: boolean; renamed: Record<RenameKind, number>; changedDestinations: number; queueWaitMs: number; syncMs: number
+}
 export type ProtocolDirection = 'TX' | 'RX'
 export type ProtocolPacket = { id: number; at: number; direction: ProtocolDirection; wire: string }
 export type MonitorRow = {
-  id: number; at: number; user: string; userIp: string | null; event: 'Route' | 'Salvo'; panelName: string | null
+  id: number; at: number; user: string; userIp: string | null
+  event: 'Route' | 'Salvo' | 'SRC Rename' | 'DST Rename' | 'Salvo Rename'; panelName: string | null
   destination: string; source: string
 }
 export type MonitorPage = { rows: MonitorRow[]; nextCursor: string | null; head: number; totalMatches: number }

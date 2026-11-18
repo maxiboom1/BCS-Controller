@@ -54,9 +54,9 @@ export function reconcileAssignments(items: BoundItem[], listing: Listing) {
   })
 }
 
-export function AssignmentPicker({ kind, items, change, listing, readOnly = false }: {
+export function AssignmentPicker({ kind, items, change, listing }: {
   kind: 'sources' | 'destinations' | 'levels' | 'salvos'; items: BoundItem[]; change: (rows: BoundItem[]) => void;
-  listing: Listing; readOnly?: boolean
+  listing: Listing
 }) {
   const assigned = items
   const [query, setQuery] = useState('')
@@ -93,26 +93,26 @@ export function AssignmentPicker({ kind, items, change, listing, readOnly = fals
     {overLimit && <Notice error>A panel can contain up to {limit} {kind}.</Notice>}
     <div className="assignment-picker">
       <div className="assignment-side">
-        <div className="assignment-toolbar"><SearchBox label={'Find ' + kind} value={query}
-          onChange={value => { setQuery(value); left.replace([]) }} /></div>
+        <div className="assignment-toolbar">{kind !== 'levels' && <SearchBox label={'Find ' + kind} value={query}
+          onChange={value => { setQuery(value); left.replace([]) }} />}</div>
         <CatalogueTable label={'Available ' + kind} columns={['Available']} rows={available} selection={left}
           empty={listing.loading ? 'Loading catalogue…' : 'No matching entries.'} render={row => <td title={row.name}>{row.label}</td>} />
       </div>
       <div className="transfer-actions">
         <button type="button" className="icon-button transfer-add" aria-label={'Assign selected ' + kind} title={'Assign selected ' + kind}
-          disabled={readOnly || !adding.length || overLimit} onClick={add}><ArrowRight size={18} /></button>
+          disabled={!adding.length || overLimit} onClick={add}><ArrowRight size={18} /></button>
         <button type="button" className="icon-button transfer-remove" aria-label={'Remove selected ' + kind} title={'Remove selected ' + kind}
-          disabled={readOnly || !removing} onClick={remove}><ArrowLeft size={18} /></button>
+          disabled={!removing} onClick={remove}><ArrowLeft size={18} /></button>
       </div>
       <div className="assignment-side">
         <div className="assignment-toolbar">
-          <button type="button" disabled={readOnly || assigned.length < 2 || listing.loading || !!listing.error}
+          <button type="button" disabled={assigned.length < 2 || listing.loading || !!listing.error}
             onClick={() => change(sortAssignments(assigned, listing.items, 'database'))}>Database order</button>
-          <button type="button" disabled={readOnly || assigned.length < 2}
+          <button type="button" disabled={assigned.length < 2}
             onClick={() => change(sortAssignments(assigned, listing.items, 'label'))}>A–Z</button>
-          <button type="button" aria-label={'Move selected ' + kind + ' up'} title="Move up" disabled={readOnly || up === assigned}
+          <button type="button" aria-label={'Move selected ' + kind + ' up'} title="Move up" disabled={up === assigned}
             onClick={() => change(up)}><ArrowUp size={16} /></button>
-          <button type="button" aria-label={'Move selected ' + kind + ' down'} title="Move down" disabled={readOnly || down === assigned}
+          <button type="button" aria-label={'Move selected ' + kind + ' down'} title="Move down" disabled={down === assigned}
             onClick={() => change(down)}><ArrowDown size={16} /></button>
         </div>
         <CatalogueTable label={'Assigned ' + kind} columns={['Assigned']} rows={assigned} selection={right}

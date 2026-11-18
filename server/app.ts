@@ -7,6 +7,7 @@ import staticFiles from '@fastify/static'
 import { z } from 'zod'
 import { MIN_PASSWORD_LENGTH } from '../shared/model.ts'
 import type { ControllerSettings, Kind, SettingsView, Snapshot } from '../shared/model.ts'
+import { describeSyncChanges } from '../shared/syncSummary.ts'
 import type { Store } from './db.ts'
 import type { Router } from './router.ts'
 import { checkPassword, hashPassword, newToken, tokenHash } from './auth.ts'
@@ -16,6 +17,7 @@ import { consoleLogger, release } from './log.ts'
 import { Presence } from './presence.ts'
 import { monitorHistory, monitorQuery } from './monitor.ts'
 import { protocolStream } from './protocolStream.ts'
+import { findCatalogueRenames } from './catalogueRenames.ts'
 import { DEFAULT_SETTINGS, endpointAddress, settingsInput } from './settings.ts'
 
 const username = z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_.-]+$/)
@@ -110,20 +112,27 @@ export async function createApp(options: AppOptions) {
       if (client.bytes > 4 * 1024 * 1024) stream.destroy()
     }
   }
+  function publishMonitor(head: number) {
+    if (!head) return
+    for (const [stream, { session }] of streams) {
+      if (accountFor(session)?.role === 'admin') event(stream, 'monitor', head)
+    }
+  }
   router.observeRoutes = observations => {
     try {
-      const head = history.record(observations, router.catalogue)
-      if (!head) return
-      for (const [stream, { session }] of streams) {
-        if (accountFor(session)?.role === 'admin') event(stream, 'monitor', head)
-      }
+      publishMonitor(history.record(observations, router.catalogue))
     } catch (error) {
       log('Could not record Monitor history · ' + (error as Error).message, 'ERROR')
     }
   }
   router.observeSync = (result, { trigger, username }) => {
-    log(`Full sync completed · ${trigger}${username ? ' by ' + username : ''} · queue ${result.queueWaitMs} ms · routing pause ${result.syncMs} ms · ${result.changedDestinations} changed destinations${result.changed ? ' · catalogue updated' : ''}`)
+    log(`Full sync completed · ${trigger}${username ? ' by ' + username : ''} · queue ${result.queueWaitMs} ms · routing pause ${result.syncMs} ms · ${describeSyncChanges(result)}`)
   }
+  const persistCatalogue = db.sql.transaction((key: string) => {
+    const previous = db.catalogue(key)
+    db.saveCatalogue(key, router.catalogue)
+    return previous ? history.recordRenames(findCatalogueRenames(previous, router.catalogue), Date.now()) : 0
+  })
   function publish(destinationId?: string, syncRouteIds?: ReadonlySet<string>) {
     for (const [stream, { session }] of streams) {
       const account = accountFor(session)
@@ -149,12 +158,14 @@ export async function createApp(options: AppOptions) {
       log(`${messages[state]} · ${endpoint}${lastError ? ' · ' + lastError : ''}`, state === 'retrying' ? 'WARN' : 'INFO')
     }
     previousRouter = router.status
+    let monitorHead = 0
     if (change.catalogue) {
-      db.saveCatalogue(router.status.mode === 'simulator' ? options.catalogueKey : 'live:' + endpoint, router.catalogue)
+      monitorHead = persistCatalogue(router.status.mode === 'simulator' ? options.catalogueKey : 'live:' + endpoint)
       const sources = router.catalogue.sources.filter(source => source.name.trim()).length
       log(`Loaded BCS database · ${router.routes.size} destinations · ${sources} named sources · ${router.catalogue.levels.length} levels`)
     }
     publish(change.destinationId, change.catalogue ? undefined : change.syncRouteIds)
+    publishMonitor(monitorHead)
   }
 
   app.addHook('onRequest', async (request, reply) => {
